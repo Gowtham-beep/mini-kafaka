@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.nio.file.StandardOpenOption;
 
 
@@ -13,6 +14,8 @@ public class MappedBufferBenchmark {
     public static final int BYTES_TO_WRITE = 1_000_000;
     public static final byte CANARY = 0x42;
     public static void main(String[] args) throws IOException{
+        byte[] data = new byte[] {CANARY};
+        Arrays.fill(data, CANARY);
 
         long startTime = System.nanoTime();
         try(
@@ -30,15 +33,16 @@ public class MappedBufferBenchmark {
                 0,
                 BYTES_TO_WRITE
             );
-            for(int i =0;i<BYTES_TO_WRITE;i++){
-                buffer.put(CANARY);
-            }
-            buffer.force();
+            buffer.put(data);
+            // for(int i =0;i<BYTES_TO_WRITE;i++){
+            //     buffer.put(CANARY);
+            // }
+            // buffer.force();
         }
         long endTime = System.nanoTime();
         long  elapsedMs = (endTime- startTime)/1_000_000;
 
-        System.out.println("MappedByteBuffer write — " + BYTES_TO_WRITE + " bytes");
+        System.out.println("MappedByteBuffer write with bulk data  — " + BYTES_TO_WRITE + " bytes");
         System.out.println("Elapsed: " + elapsedMs + " ms");
         double throughputMB = (double) BYTES_TO_WRITE / 1024 / 1024;
         double throughputPerSec = throughputMB / (elapsedMs / 1000.0);
