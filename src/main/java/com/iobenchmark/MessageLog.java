@@ -60,7 +60,7 @@ public class MessageLog {
         return reservedOffset;
     }
 
-    public ReadResult read(long offset){
+    public ReadResult readMessage(long offset){
         if(offset>=writePosition.get()){
             return null;
         }
@@ -70,8 +70,8 @@ public class MessageLog {
         byte[] payload = new byte[messageLength];
         slice.get(payload);
 
-        long nextoffset = offset + 4 +  messageLength;
-        return new ReadResult(payload,nextoffset);
+        long nextOffset = offset + 4 +  messageLength;
+        return new ReadResult(payload,nextOffset);
     }
 
     public void close() throws IOException{

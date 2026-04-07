@@ -30,6 +30,17 @@ public class MessageLogTest {
         assertEquals(0, offset1);
         assertEquals(9, offset2);
     }
+    @Test
+    void readMessageLog() throws IOException{
+        MessageLog log = new MessageLog(TEST_FILE);
+        byte[] message1 = "GOOOOOOOOD".getBytes();
+        
+        long offset = log.append(message1);
+        ReadResult result = log.readMessage(offset);
+        log.close();
 
+        assertArrayEquals(message1, result.payload());
+        assertEquals(offset+4+message1.length, result.nextOffset());
+    }
 
 }
