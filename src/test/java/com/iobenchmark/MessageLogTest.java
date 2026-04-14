@@ -43,4 +43,39 @@ public class MessageLogTest {
         assertEquals(offset+4+message1.length, result.nextOffset());
     }
 
+    @Test
+    void concurrentAppend() throws IOException, InterruptedException {
+        MessageLog log = new MessageLog(TEST_FILE);
+        int numThreads = 4;
+        int messagesPerThread = 1000;
+        Thread[] threads = new Thread[numThreads];
+
+        for (int i = 0; i < numThreads; i++) {
+            final int threadId = i;
+            threads[i] = new Thread(() -> {
+                for (int j = 0; j < messagesPerThread; j++) {
+                    byte[] message = ("Thread-" + threadId + "-Msg-" + j).getBytes();
+                    log.append(message);
+                }
+            });
+            threads[i].start();
+        }
+
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        // Reading back every message (without verification logic yet)
+        long offset = 0;
+        int count = 0;
+        while (true) {
+            ReadResult result = log.readMessage(offset);
+            if (result == null) break;
+            offset = result.nextOffset();
+            count++;
+        }
+        assertEquals(numThreads * messagesPerThread, count);
+        
+        log.close();
+    }
 }
