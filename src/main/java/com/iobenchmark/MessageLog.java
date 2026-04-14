@@ -37,15 +37,28 @@ public class MessageLog {
 
     public long append( byte[] message){
         int totalSize = 4 + message.length;
-        long reservedOffset = writePosition.get();
-        writePosition.set(reservedOffset + totalSize);
+        long reservedOffset;
+        while(true){
+            long current = writePosition.get();
+            long next = current + totalSize;
 
+            if (next > MAX_FILE_SIZE) {
+                throw new IllegalStateException(
+                    "Log is full. Current position: " + current 
+                );
+            }
+            if (writePosition.compareAndSet(current, next)) {
+                reservedOffset = current;
+                break;
+            }
+        }
         ByteBuffer view = mappedByteBuffer.duplicate();
         view.position((int)reservedOffset);
         view.putInt(message.length);
         view.put(message);
         return reservedOffset;
     }
+
     public ReadResult readMessage(long offset){
         if(offset>=writePosition.get()){
             return null;

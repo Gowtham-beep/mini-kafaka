@@ -74,6 +74,7 @@ public class MessageLogTest {
             offset = result.nextOffset();
             count++;
         }
+        System.out.println("Count: " + count);
         assertEquals(numThreads * messagesPerThread, count);
         
         log.close();
