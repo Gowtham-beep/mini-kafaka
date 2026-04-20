@@ -3,8 +3,10 @@ package com.iobenchmark;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class MessageLogTest {
@@ -16,7 +18,7 @@ public class MessageLogTest {
     }
 
     @Test
-    void appendReturnDifferentOffset() throws IOException{
+    void appendReturnDifferentOffset() throws IOException, InterruptedException {
         MessageLog log = new MessageLog(TEST_FILE);
 
         byte[] message1 = "Hello".getBytes();
@@ -31,7 +33,7 @@ public class MessageLogTest {
         assertEquals(9, offset2);
     }
     @Test
-    void readMessageLog() throws IOException{
+    void readMessageLog() throws IOException, InterruptedException {
         MessageLog log = new MessageLog(TEST_FILE);
         byte[] message1 = "GOOOOOOOOD".getBytes();
         
@@ -55,7 +57,12 @@ public class MessageLogTest {
             threads[i] = new Thread(() -> {
                 for (int j = 0; j < messagesPerThread; j++) {
                     byte[] message = ("Thread-" + threadId + "-Msg-" + j).getBytes();
-                    log.append(message);
+                    try {
+                        log.append(message);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
                 }
             });
             threads[i].start();
@@ -77,6 +84,44 @@ public class MessageLogTest {
         System.out.println("Count: " + count);
         assertEquals(numThreads * messagesPerThread, count);
         
+        log.close();
+    }
+
+    @Test
+    void simpleConcurrentReadOfLargeMessage() throws IOException, InterruptedException {
+        MessageLog log = new MessageLog(TEST_FILE);
+        byte[] largeMessage = "x".repeat(10_000).getBytes(StandardCharsets.UTF_8);
+        AtomicReference<ReadResult> consumed = new AtomicReference<>();
+
+        Thread producer = new Thread(() -> {
+            try {
+                log.append(largeMessage);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        });
+        Thread consumer = new Thread(() -> {
+            while (consumed.get() == null) {
+                ReadResult result = log.readMessage(0);
+                if (result != null) {
+                    consumed.set(result);
+                }
+            }
+        });
+
+        consumer.start();
+        Thread.sleep(1);
+        producer.start();
+
+        consumer.join();
+        Thread.sleep(1);
+        producer.join();
+
+        ReadResult result = consumed.get();
+        assertNotNull(result);
+        System.out.println("Consumer got back: " + new String(result.payload(), StandardCharsets.UTF_8)+ result.payload().length);
+
         log.close();
     }
 }

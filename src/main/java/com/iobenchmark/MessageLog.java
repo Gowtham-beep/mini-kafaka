@@ -35,7 +35,7 @@ public class MessageLog {
         );
     }
 
-    public long append( byte[] message){
+    public long append( byte[] message) throws InterruptedException{
         int totalSize = 4 + message.length;
         long reservedOffset;
         while(true){
@@ -55,6 +55,7 @@ public class MessageLog {
         ByteBuffer view = mappedByteBuffer.duplicate();
         view.position((int)reservedOffset);
         view.putInt(message.length);
+        Thread.sleep(10);
         view.put(message);
         return reservedOffset;
     }
