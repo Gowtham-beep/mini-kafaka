@@ -177,9 +177,10 @@ public class Segment {
         int length = this.logBuffer.getInt((int)pos);
         byte[] payload = new byte[length];
 
-        ByteBuffer readBuf = this.logBuffer.duplicate();
-        readBuf.position((int) pos + 4);
-        readBuf.get(payload);
+        for(int i=0;i<length;i++){
+            payload[i] = this.logBuffer.get((int)pos+4+i);
+        }
+       
 
         int storedCRC = this.logBuffer.getInt((int)pos+4+length);
         
