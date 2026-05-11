@@ -111,4 +111,11 @@ public class Segment {
         return claimedLogicalOffset;
     }
 
+    private void writeIndexEntry(long logicalOffset, long bytePos){
+        long pos = this.indexPosition.getAndAdd(INDEX_ENTRY_SIZE);
+        ByteBuffer buf = this.indexBuffer.duplicate();
+        buf.position((int)pos);
+        buf.putLong(logicalOffset);
+        buf.putLong(bytePos);
+    }
 }
