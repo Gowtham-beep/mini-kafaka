@@ -127,5 +127,70 @@ public class Segment {
         this.indexFileChannel.close(); 
     }
 
-    
+    public byte[] read(long logicalOffset){
+        if(logicalOffset<this.baseOffset){
+            throw new IllegalStateException("Invalid logical offset");
+        }
+        long maxOffset = this.baseOffset + this.messageCount.get();
+
+        if(logicalOffset >= maxOffset){
+            throw new IllegalStateException("Offset not yet written: " + logicalOffset);
+        }
+        
+        long indexPos = this.indexPosition.get();
+        long entryCount = indexPos/INDEX_ENTRY_SIZE;
+
+        long anchorLogicalOffset = this.baseOffset;
+        long anchorBytePos = 0;
+
+        int lo = 0;
+        int hi = (int)entryCount -1;
+
+        if(entryCount>0){
+            while(lo<=hi){
+            int mid = lo +(hi-lo)/2;
+            long entryOffset = this.indexBuffer.getLong(mid*INDEX_ENTRY_SIZE);
+            if(entryOffset==logicalOffset){
+                hi = mid;
+                break;
+            }else if(entryOffset<logicalOffset){
+                lo = mid +1;
+            }else{
+                hi = mid -1;
+            }
+        }
+        
+        if(hi>=0){
+            anchorLogicalOffset = this.indexBuffer.getLong(hi*INDEX_ENTRY_SIZE);
+            anchorBytePos = this.indexBuffer.getLong((hi*INDEX_ENTRY_SIZE)+8);
+        }
+        }
+
+        long currOffset = anchorLogicalOffset;
+        long pos = anchorBytePos;
+
+        while (currOffset<logicalOffset) {
+            int length = this.logBuffer.getInt((int)pos);
+            pos +=(4+length+4);
+            currOffset++;
+        }
+        int length = this.logBuffer.getInt((int)pos);
+        byte[] payload = new byte[length];
+
+        ByteBuffer readBuf = this.logBuffer.duplicate();
+        readBuf.position((int) pos + 4);
+        readBuf.get(payload);
+
+        int storedCRC = this.logBuffer.getInt((int)pos+4+length);
+        
+        CRC32 crc = new CRC32();
+        crc.update(payload);
+        int computedCrc32 = (int) crc.getValue();
+
+        if(storedCRC != computedCrc32){
+            throw new IllegalStateException("Message is corrupted");
+        }
+
+        return payload;
+    }
 }
