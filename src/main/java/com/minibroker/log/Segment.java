@@ -129,12 +129,12 @@ public class Segment {
 
     public byte[] read(long logicalOffset){
         if(logicalOffset<this.baseOffset){
-            throw new IllegalStateException("Invalid logical offset");
+            throw new OffsetOutOfRangeException("Invalid logical offset: " + logicalOffset);
         }
         long maxOffset = this.baseOffset + this.messageCount.get();
 
         if(logicalOffset >= maxOffset){
-            throw new IllegalStateException("Offset not yet written: " + logicalOffset);
+            throw new OffsetOutOfRangeException("Offset not yet written: " + logicalOffset);
         }
         
         long indexPos = this.indexPosition.get();
@@ -188,7 +188,7 @@ public class Segment {
         int computedCrc32 = (int) crc.getValue();
 
         if(storedCRC != computedCrc32){
-            throw new IllegalStateException("Message is corrupted");
+            throw new CorruptedMessageException("Message is corrupted");
         }
 
         return payload;
