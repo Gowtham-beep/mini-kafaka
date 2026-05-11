@@ -120,10 +120,12 @@ public class Segment {
     }
 
     public void seal() throws IOException{
-        this.isSealed = true;
         this.logBuffer.force();
-        this.indexBuffer.force();    
+        this.indexBuffer.force();   
+        this.isSealed = true; 
         this.logFileChannel.close();
         this.indexFileChannel.close(); 
     }
+
+    
 }
