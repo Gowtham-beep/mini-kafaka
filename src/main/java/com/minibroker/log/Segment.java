@@ -65,38 +65,50 @@ public class Segment {
         if(isSealed){
             throw new IllegalStateException("Segment is sealed , no writes allowed...");
         }
+
         CRC32 crc = new CRC32();
         crc.update(payload);
         int crc32 = (int) crc.getValue();
-
-
         int totalBytes = 4 + payload.length + 4;
 
-        synchronized (this) {
-            if(isSealed){
-            throw new IllegalStateException("Segment is sealed , no writes allowed...");
+        long claimedWritePos;
+        while(true){
+            claimedWritePos = this.writePosition.get();
+            long nextWritePos = claimedWritePos + totalBytes;
+            if(nextWritePos > MAX_FILE_SIZE){
+                throw new IllegalStateException(
+                    "Segment is full. Current position: " + claimedWritePos
+                );
+            }
+            if(this.writePosition.compareAndSet(claimedWritePos, nextWritePos)){
+                break;
+            }
         }
-        long currentWritePos = this.writePosition;
-        if(currentWritePos + totalBytes>=MAX_FILE_SIZE){
-            return -1;
-            //signaling the segmentLog
-        }
+        
+        long messageIndex = this.messageCount.getAndIncrement();
+        long claimedLogicalOffset = this.baseOffset + messageIndex;
+
         ByteBuffer buf = logBuffer.duplicate();
-        buf.position((int)currentWritePos);
+        buf.position((int)claimedWritePos);
         buf.putInt(payload.length);
         buf.put(payload);
-        buf.putInt(crc32)
+        buf.putInt(crc32);
 
-        long logicalOffset = this.baseOffset + this.messageCount;
-        this.writePosition+=totalBytes;
-        this.messageCount++;
-        }
-        if(currentWritePos - this.lastIndexBytesPos>=INDEX_INTERVAL){
-            writeIndexEntry(logicalOffset,currentWritePos);
-            this.lastIndexBytesPos=currentWritePos;
+        while(true){
+            long currentLast = this.lastIndexBytesPos.get();
+            if((claimedWritePos - currentLast)>=INDEX_INTERVAL){
+
+                if(this.lastIndexBytesPos.compareAndSet(currentLast, claimedWritePos)){
+
+                    writeIndexEntry(claimedLogicalOffset,claimedWritePos);
+                    break;
+                }
+            }else{
+                break;
+            }
         }
 
-        return logicalOffset;
+        return claimedLogicalOffset;
     }
 
 }
