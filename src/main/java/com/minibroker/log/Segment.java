@@ -118,4 +118,12 @@ public class Segment {
         buf.putLong(logicalOffset);
         buf.putLong(bytePos);
     }
+
+    public void seal() throws IOException{
+        this.isSealed = true;
+        this.logBuffer.force();
+        this.indexBuffer.force();    
+        this.logFileChannel.close();
+        this.indexFileChannel.close(); 
+    }
 }
