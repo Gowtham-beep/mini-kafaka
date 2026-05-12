@@ -9,7 +9,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
 
-public class Segment {
+public class Segment implements Comparable<Segment> {
 
     private static final long MAX_FILE_SIZE = 1024 * 1024 * 1024; 
     private static final int INDEX_INTERVAL = 4096;
@@ -33,6 +33,11 @@ public class Segment {
     private final FileChannel indexFileChannel;
     private volatile boolean isSealed = false;
    
+    @Override
+    public int compareTo(Segment other) {
+        return Long.compare(this.baseOffset, other.baseOffset);
+    }
+
     public Segment(long baseOffset, Path logPath, Path indexPath) throws  IOException{
         this.baseOffset = baseOffset;
 

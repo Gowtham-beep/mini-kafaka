@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
-import javax.management.RuntimeErrorException;
 
 public class SegmentedLog {
     private final Path baseDir; 
@@ -42,7 +41,7 @@ public class SegmentedLog {
             Segment activeSegment = this.currentSegment;
             try{
                 return activeSegment.append(payload);
-                
+
             }catch(IllegalStateException e){
                 reentrantLock.lock();
                 try{
@@ -65,7 +64,7 @@ public class SegmentedLog {
             this.currentSegment = newSegment;
 
         }catch( IOException e){
-            throw new RuntimeException("CRITICAL IO ERROR: Failed to rotate segment");
+            throw new RuntimeException("CRITICAL IO ERROR: Failed to rotate segment",e);
         }
     }
 
