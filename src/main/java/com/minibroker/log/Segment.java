@@ -66,7 +66,7 @@ public class Segment {
             MAX_INDEX_SIZE
         );
     }
-    public long append(byte[] payload) throws InterruptedException{
+    public long append(byte[] payload){
         if(isSealed){
             throw new IllegalStateException("Segment is sealed , no writes allowed...");
         }
@@ -133,6 +133,7 @@ public class Segment {
     public byte[] read(long logicalOffset){
         if(logicalOffset<this.baseOffset){
             throw new OffsetOutOfRangeException("Invalid logical offset: " + logicalOffset);
+        }
         
         long maxOffset = this.baseOffset + this.messageCount.get();
         if(logicalOffset >= maxOffset){
@@ -195,7 +196,9 @@ public class Segment {
         }
 
         return payload;
+        
     }
+    
 
     public long getBaseOffset() {
         return baseOffset;
