@@ -28,7 +28,8 @@ public class Segment implements Comparable<Segment> {
     private final AtomicLong indexPosition = new AtomicLong(0);
     private final AtomicLong lastIndexBytesPos = new AtomicLong(0);
    
-
+    private final Path logPath;
+    private final Path indexPath;
 
     private final FileChannel logFileChannel;
     private final FileChannel indexFileChannel;
@@ -41,6 +42,8 @@ public class Segment implements Comparable<Segment> {
 
     public Segment(long baseOffset, Path logPath, Path indexPath) throws  IOException{
         this.baseOffset = baseOffset;
+        this.logPath = logPath;
+        this.indexPath = indexPath;
 
         this.logFileChannel = FileChannel.open(
             logPath,
@@ -205,13 +208,18 @@ public class Segment implements Comparable<Segment> {
         
     }
     
-    public void deleteFiles(Path logPath, Path indexPath){
+    public void deleteFiles(){
         try {
             Files.deleteIfExists(logPath);
            Files.deleteIfExists(indexPath);
         } catch (IOException e) {
             System.err.println("Error deleting files: " + e.getMessage());
         }
+    }
+
+    public void closeChannels() throws IOException{
+        logFileChannel.close();
+        indexFileChannel.close();
     }
 
     public long getBaseOffset() {

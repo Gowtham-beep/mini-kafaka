@@ -3,6 +3,7 @@ package com.minibroker.log;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
@@ -104,5 +105,54 @@ public class SegmentedLog {
             }
         }
         return null; 
+    }
+
+    public void close(){
+        reentrantLock.lock();
+        try {
+            for(Segment segment : segments){
+                if(!segment.isSealed()){
+                    segment.seal();
+                }else{
+                    segment.closeChannels();
+                }
+            }
+        }catch(IOException e){
+            System.err.println("Error closing segment: " + e.getMessage());
+        }
+         finally {
+            reentrantLock.unlock();
+        }
+
+    }
+
+    public void delete(long retentionOffset){
+        List<Segment> expiredSegments = new ArrayList<>();
+
+        for(int i=0;i<segments.size()-1;i++){
+
+            Segment curr = segments.get(i);
+            Segment next = segments.get(i+1);
+
+            if(next.getBaseOffset() <=retentionOffset){
+                expiredSegments.add(curr);
+            }else{
+                break;
+            }
+        }
+        if(expiredSegments.isEmpty()){
+            return;
+        }
+        this.segments.removeAll(expiredSegments);
+
+        for(Segment segment: expiredSegments ){
+            try {
+                segment.deleteFiles();
+            } catch (Exception e) {
+                System.err.println("Failed to delete segment: " + e.getMessage());
+            }
+            
+        }
+
     }
 }
