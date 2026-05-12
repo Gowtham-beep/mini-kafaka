@@ -133,9 +133,7 @@ public class Segment {
     public byte[] read(long logicalOffset){
         if(logicalOffset<this.baseOffset){
             throw new OffsetOutOfRangeException("Invalid logical offset: " + logicalOffset);
-        }
-
-
+        
         long maxOffset = this.baseOffset + this.messageCount.get();
         if(logicalOffset >= maxOffset){
             throw new OffsetOutOfRangeException("Offset not yet written: " + logicalOffset);
