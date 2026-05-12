@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.atomic.AtomicLong;
@@ -204,6 +205,14 @@ public class Segment implements Comparable<Segment> {
         
     }
     
+    public void deleteFiles(Path logPath, Path indexPath){
+        try {
+            Files.deleteIfExists(logPath);
+           Files.deleteIfExists(indexPath);
+        } catch (IOException e) {
+            System.err.println("Error deleting files: " + e.getMessage());
+        }
+    }
 
     public long getBaseOffset() {
         return baseOffset;

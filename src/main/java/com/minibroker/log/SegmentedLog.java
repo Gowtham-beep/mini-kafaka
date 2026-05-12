@@ -68,4 +68,41 @@ public class SegmentedLog {
         }
     }
 
+    public byte[] read(long logicalOffset){
+        Segment targetSegment = findSegment(logicalOffset);
+        if(targetSegment == null){
+            throw new IllegalArgumentException(
+                "Offset" + logicalOffset + "is out of range"
+            );
+        }
+        return targetSegment.read(logicalOffset);
+    }
+
+    private Segment findSegment(long logicalOffset){
+        int lo =0;
+        int hi = segments.size() -1;
+        Segment floorSegment = null;
+
+        while(lo<=hi){
+            int mid = lo + (hi-lo)/2;
+            Segment midSegment = segments.get(mid);
+            long midBaseOffset = midSegment.getBaseOffset();
+            if(midBaseOffset == logicalOffset){
+                return midSegment;
+            }else if (midBaseOffset< logicalOffset){
+                floorSegment = midSegment;
+                lo = mid + 1;
+            }else{
+                hi = mid -1;
+
+            }
+        }
+        if(floorSegment!=null){
+            long maxOffsetInSegment = floorSegment.getBaseOffset()+floorSegment.getMessageCount();
+            if(logicalOffset< maxOffsetInSegment){
+                return floorSegment;
+            }
+        }
+        return null; 
+    }
 }
