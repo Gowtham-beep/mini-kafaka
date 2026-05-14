@@ -2,6 +2,7 @@ package com.minibrokerTest;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.minibroker.log.SegmentedLog;
+import com.minibroker.log.OffsetOutOfRangeException;
 
 public class SegmentedLogTest {
     @TempDir
@@ -102,13 +104,13 @@ public class SegmentedLogTest {
     @Test
     void testThunderingHerdRotation() throws Exception{
         long payloadSize = 100;
-        long recordSize = payloadSize +8;
+        long recordSize = payloadSize + 8;
         long recordPerSegment = 10;
         long maxSegmentSize = recordSize * recordPerSegment;
 
         log = new SegmentedLog(0L,logPath,maxSegmentSize);
 
-        int threadCount =50;
+        int threadCount = 50;
         int messagesPerThread = 20;
         int totalMessages = threadCount * messagesPerThread;
 
@@ -156,4 +158,69 @@ public class SegmentedLogTest {
     
     }
 
+    @Test
+    void testSegmentBoundarySeam() throws IOException {
+        int maxSegmentSize = 216; // Exactly 2 records (108 bytes each)
+        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+
+        byte[] payload = new byte[100];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = 42;
+        }
+        long offset0 = log.append(payload);
+        long offset1 = log.append(payload);
+        long offset2 = log.append(payload); // Should trigger rotation
+
+        assertEquals(0L, offset0);
+        assertEquals(1L, offset1, "Last message of Segment 0");
+        assertEquals(2L, offset2, "First message of Segment 1");
+
+        assertArrayEquals(payload, log.read(1), "Failed to read the last message of the old segment");
+        assertArrayEquals(payload, log.read(2), "Failed to read the first message of the new segment");
+        
+        long fileCount;
+        try (Stream<Path> files = Files.list(logPath)) {
+            fileCount = files.filter(p -> p.toString().endsWith(".log")).count();
+        }
+        assertEquals(2, fileCount, "Should have rotated after 2 records.");
+    }
+
+    @Test
+    void testRetentionPolicyDeletion() throws IOException {
+        int maxSegmentSize = 216; // 2 records per segment
+        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+        byte[] payload = new byte[100];
+
+        // 6 messages -> 3 segments (0-1, 2-3, 4-5)
+        for (int i = 0; i < 6; i++) {
+            log.append(payload);
+        }
+        
+        // Deleting up to offset 2 should remove Segment 0 (offsets 0, 1)
+        // Segment 2 starts at offset 2, so Segment 0's 'next' is 2. 2 <= 2 is true.
+        log.delete(2L);
+
+        long fileCount;
+        try (Stream<Path> files = Files.list(logPath)) {
+            fileCount = files.filter(p -> p.toString().endsWith(".log")).count();
+        }
+        assertEquals(2, fileCount, "Disk should only contain Segment 2 and Segment 4.");
+
+        assertThrows(OffsetOutOfRangeException.class, () -> log.read(0), "Offset 0 should be inaccessible.");
+        assertThrows(OffsetOutOfRangeException.class, () -> log.read(1), "Offset 1 should be inaccessible.");
+
+        assertArrayEquals(payload, log.read(2), "Offset 2 should have survived.");
+        assertArrayEquals(payload, log.read(5), "Active segment should be untouched.");
+    }
+
+    @Test
+    void testCleanShutdownSealsActiveSegment() throws IOException {
+        log = new SegmentedLog(0L, logPath);
+        byte[] payload = "Final words".getBytes();
+        log.append(payload);
+        log.close();
+
+        assertThrows(IllegalStateException.class, () -> log.append("Ghost data".getBytes()),
+            "Broker allowed writes after close() was called!");
+    }
 }

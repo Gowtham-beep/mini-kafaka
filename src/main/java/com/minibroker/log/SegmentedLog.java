@@ -15,6 +15,7 @@ public class SegmentedLog {
     private volatile Segment currentSegment;
     private final ReentrantLock reentrantLock;
     private final long maxFileSize;
+    private volatile boolean closed = false;
 
     public SegmentedLog(long initialOffset, Path baseDir, long maxFileSize) throws IOException{
         this.baseDir = baseDir;
@@ -44,6 +45,9 @@ public class SegmentedLog {
     }
 //hot path 
     public long append(byte[] payload){
+        if (closed) {
+            throw new IllegalStateException("Log is closed");
+        }
         while(true){
             Segment activeSegment = this.currentSegment;
             try{
@@ -52,6 +56,9 @@ public class SegmentedLog {
             }catch(IllegalStateException e){
                 reentrantLock.lock();
                 try{
+                    if (closed) {
+                        throw new IllegalStateException("Log was closed during rotation");
+                    }
                     if(this.currentSegment == activeSegment){
                         rotate(activeSegment);
                     }
@@ -78,9 +85,7 @@ public class SegmentedLog {
     public byte[] read(long logicalOffset){
         Segment targetSegment = findSegment(logicalOffset);
         if(targetSegment == null){
-            throw new IllegalArgumentException(
-                "Offset" + logicalOffset + "is out of range"
-            );
+            throw new OffsetOutOfRangeException("Offset " + logicalOffset + " is out of range");
         }
         return targetSegment.read(logicalOffset);
     }
@@ -116,6 +121,7 @@ public class SegmentedLog {
     public void close(){
         reentrantLock.lock();
         try {
+            closed = true;
             for(Segment segment : segments){
                 if(!segment.isSealed()){
                     segment.seal();
