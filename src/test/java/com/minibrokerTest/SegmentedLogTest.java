@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,5 +57,38 @@ public class SegmentedLogTest {
         assertArrayEquals(msg0, retrivedMessage0);
         assertArrayEquals(msg1, retrivedMessage1);
 
+    }
+
+    @Test
+    void testSegmentRotationOnSizeLimit() throws IOException{
+        long maxSegmentSize = 250;
+        log = new SegmentedLog(0L,logPath,maxSegmentSize);
+
+        byte[] payload = new byte[100];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = (byte) i;
+        }
+        long offset0 = log.append(payload);
+        assertEquals(0, offset0);
+
+        long offset1 = log.append(payload);
+        assertEquals(1,offset1);
+
+        long offset2 = log.append(payload);
+        assertEquals(2,offset2);
+
+        long offset3 = log.append(payload);
+        assertEquals(3,offset3);
+
+        assertArrayEquals(payload, log.read(3));
+        assertArrayEquals(payload, log.read(0));
+        assertArrayEquals(payload, log.read(2));
+        assertArrayEquals(payload, log.read(1));
+
+        long fileCount;
+        try(Stream<Path> files = Files.list(logPath)){
+            fileCount = files.filter(p->p.toString().endsWith(".log")).count();
+        }
+        assertEquals(2, fileCount, "There should be exactly two physical .log files on the disk.");   
     }
 }

@@ -12,12 +12,13 @@ import java.util.zip.CRC32;
 
 public class Segment implements Comparable<Segment> {
 
-    private static final long MAX_FILE_SIZE = 1024 * 1024 * 1024; 
+    public static final long DEFAULT_MAX_FILE_SIZE = 1024L * 1024 * 1024;
     private static final int INDEX_INTERVAL = 4096;
     private static final int INDEX_ENTRY_SIZE = 16;
 
 
-    private static final long MAX_INDEX_SIZE = (MAX_FILE_SIZE / INDEX_INTERVAL) * INDEX_ENTRY_SIZE;
+    private final long maxFileSize;
+    private final long maxIndexSize;
     
    
     private final MappedByteBuffer logBuffer;
@@ -40,10 +41,12 @@ public class Segment implements Comparable<Segment> {
         return Long.compare(this.baseOffset, other.baseOffset);
     }
 
-    public Segment(long baseOffset, Path logPath, Path indexPath) throws  IOException{
+    public Segment(long baseOffset, Path logPath, Path indexPath, long maxFileSize) throws  IOException{
         this.baseOffset = baseOffset;
         this.logPath = logPath;
         this.indexPath = indexPath;
+        this.maxFileSize = maxFileSize;
+        this.maxIndexSize = Math.max(INDEX_ENTRY_SIZE, (maxFileSize / INDEX_INTERVAL) * INDEX_ENTRY_SIZE);
 
         this.logFileChannel = FileChannel.open(
             logPath,
@@ -51,13 +54,13 @@ public class Segment implements Comparable<Segment> {
             StandardOpenOption.WRITE,
             StandardOpenOption.CREATE
         );
-        logFileChannel.position(MAX_FILE_SIZE-1);
+        logFileChannel.position(maxFileSize-1);
         logFileChannel.write(ByteBuffer.wrap(new byte[]{0}));
 
         this.logBuffer =logFileChannel.map(
             FileChannel.MapMode.READ_WRITE,
             0,
-            MAX_FILE_SIZE
+            maxFileSize
         );
 
         this.indexFileChannel = FileChannel.open(
@@ -66,14 +69,18 @@ public class Segment implements Comparable<Segment> {
             StandardOpenOption.WRITE,
             StandardOpenOption.CREATE
         );
-        indexFileChannel.position(MAX_INDEX_SIZE -1);
+        indexFileChannel.position(maxIndexSize -1);
         indexFileChannel.write(ByteBuffer.wrap(new byte[]{0}));
 
         this.indexBuffer = indexFileChannel.map(
             FileChannel.MapMode.READ_WRITE,
             0,
-            MAX_INDEX_SIZE
+            maxIndexSize
         );
+    }
+
+    public Segment(long baseOffset, Path logPath, Path indexPath) throws IOException {
+        this(baseOffset, logPath, indexPath, DEFAULT_MAX_FILE_SIZE);
     }
     public long append(byte[] payload){
         if(isSealed){
@@ -89,7 +96,7 @@ public class Segment implements Comparable<Segment> {
         while(true){
             claimedWritePos = this.writePosition.get();
             long nextWritePos = claimedWritePos + totalBytes;
-            if(nextWritePos > MAX_FILE_SIZE){
+            if(nextWritePos > maxFileSize){
                 throw new IllegalStateException(
                     "Segment is full. Current position: " + claimedWritePos
                 );

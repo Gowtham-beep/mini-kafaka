@@ -14,11 +14,13 @@ public class SegmentedLog {
     private final List<Segment> segments;
     private volatile Segment currentSegment;
     private final ReentrantLock reentrantLock;
+    private final long maxFileSize;
 
-    public SegmentedLog(long initialOffset, Path baseDir) throws IOException{
+    public SegmentedLog(long initialOffset, Path baseDir, long maxFileSize) throws IOException{
         this.baseDir = baseDir;
         this.segments = new CopyOnWriteArrayList<>();
         this.reentrantLock = new ReentrantLock(false);
+        this.maxFileSize = maxFileSize;
 
         if(!Files.exists(baseDir)){
             Files.createDirectories(baseDir);
@@ -28,13 +30,17 @@ public class SegmentedLog {
         this.segments.add(currentSegment);
 
     }
+
+    public SegmentedLog(long initialOffset, Path baseDir) throws IOException {
+        this(initialOffset, baseDir, Segment.DEFAULT_MAX_FILE_SIZE);
+    }
     
     private Segment createNewSegment(long baseOffset) throws IOException{
         String baseName = String.format("%020d", baseOffset);
         Path logPath = baseDir.resolve(baseName + ".log");
         Path indexPath = baseDir.resolve(baseName + ".index");
 
-        return new Segment(baseOffset, logPath, indexPath);
+        return new Segment(baseOffset, logPath, indexPath, maxFileSize);
     }
 //hot path 
     public long append(byte[] payload){
