@@ -96,7 +96,7 @@ public class Segment implements Comparable<Segment> {
         while(true){
             claimedWritePos = this.writePosition.get();
             long nextWritePos = claimedWritePos + totalBytes;
-            if(nextWritePos > maxFileSize){
+            if(nextWritePos > this.maxFileSize){
                 throw new IllegalStateException(
                     "Segment is full. Current position: " + claimedWritePos
                 );

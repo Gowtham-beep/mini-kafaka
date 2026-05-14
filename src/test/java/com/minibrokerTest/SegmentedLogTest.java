@@ -2,12 +2,19 @@ package com.minibrokerTest;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
@@ -91,4 +98,62 @@ public class SegmentedLogTest {
         }
         assertEquals(2, fileCount, "There should be exactly two physical .log files on the disk.");   
     }
+
+    @Test
+    void testThunderingHerdRotation() throws Exception{
+        long payloadSize = 100;
+        long recordSize = payloadSize +8;
+        long recordPerSegment = 10;
+        long maxSegmentSize = recordSize * recordPerSegment;
+
+        log = new SegmentedLog(0L,logPath,maxSegmentSize);
+
+        int threadCount =50;
+        int messagesPerThread = 20;
+        int totalMessages = threadCount * messagesPerThread;
+
+        byte[] payload = new byte[(int)payloadSize];
+        for (int i = 0; i < payload.length; i++) {
+            payload[i] = 7;
+        }
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CyclicBarrier startingGun = new CyclicBarrier(threadCount);
+        CountDownLatch finishLine = new CountDownLatch(threadCount);
+
+        List<Exception> threadExceptions = new CopyOnWriteArrayList<>();
+            for (int i = 0; i < threadCount; i++) {
+                executor.submit(()->{
+                try {
+                    startingGun.await();
+                    for(int j=0;j<messagesPerThread;j++){
+                        log.append(payload);
+                    }
+                } catch (Exception e) {
+                    threadExceptions.add(e);
+                } finally {
+                    finishLine.countDown();
+                
+                }
+            });
+        
+        }
+
+        assertTrue(finishLine.await(10, TimeUnit.SECONDS), "Threads did not finish in time. Possible deadlock in rotation.");
+        executor.shutdown();
+
+        assertTrue(threadExceptions.isEmpty(), "Threads threw exceptions during concurrent writes: " + threadExceptions);
+
+        long fileCount;
+        try(Stream<Path> files = Files.list(logPath)){
+            fileCount = files.filter(p->p.toString().endsWith(".log")).count();
+        }
+        assertEquals(100, fileCount, "Thundering herd breached the lock! Found incorrect number of physical files.");
+
+        for (long offset = 0; offset < totalMessages; offset++) {
+            byte[] retrieved = log.read(offset);
+            assertArrayEquals(payload, retrieved, "Data corruption or missing message at offset: " + offset);
+        }
+    
+    }
+
 }
