@@ -7,6 +7,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
 
@@ -25,6 +27,8 @@ public class Segment implements Comparable<Segment> {
     private final MappedByteBuffer indexBuffer;
     private final long baseOffset;
     private final AtomicLong writePosition = new AtomicLong(0);
+    private final AtomicLong highWatermark = new AtomicLong(0);
+    private final ConcurrentMap<Long, Integer> pendingAppends = new ConcurrentHashMap<>();
     private final AtomicLong messageCount = new AtomicLong(0);
     private final AtomicLong indexPosition = new AtomicLong(0);
     private final AtomicLong lastIndexBytesPos = new AtomicLong(0);
@@ -127,6 +131,19 @@ public class Segment implements Comparable<Segment> {
             }
         }
 
+        pendingAppends.put(claimedWritePos, totalBytes);
+        while (true) {
+            long currentHwm = highWatermark.get();
+            Integer length = pendingAppends.get(currentHwm);
+            if (length != null) {
+                if (highWatermark.compareAndSet(currentHwm, currentHwm + length)) {
+                    pendingAppends.remove(currentHwm);
+                }
+            } else {
+                break;
+            }
+        }
+
         return claimedLogicalOffset;
     }
 
@@ -194,6 +211,12 @@ public class Segment implements Comparable<Segment> {
             currOffset++;
         }
         int length = this.logBuffer.getInt((int)pos);
+        
+        long messageEndPos = pos + 4 + length + 4;
+        if (messageEndPos > highWatermark.get()) {
+            throw new OffsetOutOfRangeException("Message not yet committed");
+        }
+
         byte[] payload = new byte[length];
 
         for(int i=0;i<length;i++){
