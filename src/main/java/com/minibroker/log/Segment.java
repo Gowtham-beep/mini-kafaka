@@ -10,6 +10,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.zip.CRC32;
 
 public class Segment implements Comparable<Segment> {
@@ -142,6 +143,10 @@ public class Segment implements Comparable<Segment> {
             } else {
                 break;
             }
+        }
+        long requiredHWM = claimedWritePos + totalBytes;
+        while(this.highWatermark.get()< requiredHWM){
+            LockSupport.parkNanos(1);
         }
 
         return claimedLogicalOffset;
