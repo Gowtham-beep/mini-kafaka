@@ -6,7 +6,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
 public class SegmentedLog {
@@ -16,6 +18,8 @@ public class SegmentedLog {
     private final ReentrantLock reentrantLock;
     private final long maxFileSize;
     private volatile boolean closed = false;
+    private final ReadWriteLock routingLock = new ReentrantReadWriteLock();
+
 
     public SegmentedLog(long initialOffset, Path baseDir, long maxFileSize) throws IOException{
         this.baseDir = baseDir;
@@ -83,11 +87,16 @@ public class SegmentedLog {
     }
 
     public byte[] read(long logicalOffset){
-        Segment targetSegment = findSegment(logicalOffset);
+        routingLock.readLock().lock();
+        try{
+            Segment targetSegment = findSegment(logicalOffset);
         if(targetSegment == null){
             throw new OffsetOutOfRangeException("Offset " + logicalOffset + " is out of range");
         }
         return targetSegment.read(logicalOffset);
+        }finally{
+            routingLock.readLock().unlock();
+        }
     }
 
     private Segment findSegment(long logicalOffset){
@@ -155,7 +164,15 @@ public class SegmentedLog {
         if(expiredSegments.isEmpty()){
             return;
         }
-        this.segments.removeAll(expiredSegments);
+
+
+        routingLock.writeLock().lock();
+        try {
+            this.segments.removeAll(expiredSegments);
+        } finally{
+            routingLock.writeLock().unlock();
+        }
+
 
         for(Segment segment: expiredSegments ){
             try {
