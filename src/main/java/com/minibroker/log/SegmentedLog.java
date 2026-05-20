@@ -6,6 +6,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -19,6 +21,10 @@ public class SegmentedLog {
     private final long maxFileSize;
     private volatile boolean closed = false;
     private final ReadWriteLock routingLock = new ReentrantReadWriteLock();
+
+    private final ReentrantLock newDataLock = new ReentrantLock();
+    private final Condition newDataCondition = newDataLock.newCondition();
+    private final AtomicInteger waitingConsumers = new AtomicInteger(0);
 
 
     public SegmentedLog(long initialOffset, Path baseDir, long maxFileSize) throws IOException{
@@ -52,10 +58,12 @@ public class SegmentedLog {
         if (closed) {
             throw new IllegalStateException("Log is closed");
         }
+        long logicalOffset;
         while(true){
             Segment activeSegment = this.currentSegment;
             try{
-                return activeSegment.append(payload);
+                logicalOffset =  activeSegment.append(payload);
+                break;
 
             }catch(IllegalStateException e){
                 reentrantLock.lock();
@@ -71,6 +79,15 @@ public class SegmentedLog {
                 }
             }
         }
+        if(waitingConsumers.get()>0){
+            newDataLock.lock();
+            try{
+                newDataCondition.signalAll();
+            }finally{
+                newDataLock.unlock();
+            }
+        }
+        return logicalOffset;
     }
 //cold path
     private void rotate(Segment oldSegment){
@@ -86,7 +103,29 @@ public class SegmentedLog {
         }
     }
 
-    public byte[] read(long logicalOffset){
+
+    public byte[] read(long logicalOffset) throws InterruptedException{
+        if(logicalOffset<=getHighestCommittedOffset()){
+            return doRead(logicalOffset);
+        }
+        newDataLock.lock();
+        try{
+            waitingConsumers.incrementAndGet();
+                try{
+                    while(logicalOffset>getHighestCommittedOffset()){
+                        newDataCondition.await();
+                    }
+                }finally{
+                    waitingConsumers.decrementAndGet();
+                }
+        }finally{
+            newDataLock.unlock();
+        }
+        return doRead(logicalOffset);
+        }
+
+
+    private byte[] doRead( long logicalOffset){
         routingLock.readLock().lock();
         try{
             Segment targetSegment = findSegment(logicalOffset);
@@ -125,6 +164,14 @@ public class SegmentedLog {
             }
         }
         return null; 
+    }
+
+    private long getHighestCommittedOffset(){
+        if(segments.isEmpty()){
+            return -1;
+        }
+        Segment lastSegment = segments.get(segments.size() - 1);
+        return lastSegment.getBaseOffset() + lastSegment.getMessageCount() - 1;
     }
 
     public void close(){

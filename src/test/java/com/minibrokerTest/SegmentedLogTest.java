@@ -45,7 +45,7 @@ public class SegmentedLogTest {
     }
     
     @Test
-    void testWriteAndReadMessage(){
+    void testWriteAndReadMessage() throws InterruptedException{
         byte[] msg0 = "Hello Storage Engine".getBytes();
         byte[] msg1 = "Message Two".getBytes();
         byte[] msg2 = "MThe final message in the srquence".getBytes();
@@ -69,7 +69,7 @@ public class SegmentedLogTest {
     }
 
     @Test
-    void testSegmentRotationOnSizeLimit() throws IOException{
+    void testSegmentRotationOnSizeLimit() throws IOException,InterruptedException{
         long maxSegmentSize = 250;
         log = new SegmentedLog(0L,logPath,maxSegmentSize);
 
@@ -159,7 +159,7 @@ public class SegmentedLogTest {
     }
 
     @Test
-    void testSegmentBoundarySeam() throws IOException {
+    void testSegmentBoundarySeam() throws IOException,InterruptedException{
         int maxSegmentSize = 216; // Exactly 2 records (108 bytes each)
         log = new SegmentedLog(0L, logPath, maxSegmentSize);
 
@@ -186,7 +186,7 @@ public class SegmentedLogTest {
     }
 
     @Test
-    void testRetentionPolicyDeletion() throws IOException {
+    void testRetentionPolicyDeletion() throws IOException,InterruptedException{
         int maxSegmentSize = 216; // 2 records per segment
         log = new SegmentedLog(0L, logPath, maxSegmentSize);
         byte[] payload = new byte[100];
