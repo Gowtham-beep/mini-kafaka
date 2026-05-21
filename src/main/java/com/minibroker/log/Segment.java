@@ -272,4 +272,13 @@ public class Segment implements Comparable<Segment> {
     public long getWritePosition() {
         return writePosition.get();
     }
+
+    void recoverState(long recoveredMessageCount, long recoveredWritePosition) {
+        this.messageCount.set(recoveredMessageCount);
+        this.writePosition.set(recoveredWritePosition);
+        this.highWatermark.set(recoveredWritePosition);
+        this.pendingAppends.clear();
+        this.indexPosition.set(0);
+        this.lastIndexBytesPos.set(recoveredWritePosition);
+    }
 }

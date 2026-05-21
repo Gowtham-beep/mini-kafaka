@@ -223,4 +223,29 @@ public class SegmentedLogTest {
         assertThrows(IllegalStateException.class, () -> log.append("Ghost data".getBytes()),
             "Broker allowed writes after close() was called!");
     }
+
+    @Test
+    void testRecoveryRestoresSegmentsAndContinuesOffsets() throws IOException, InterruptedException {
+        int maxSegmentSize = 216;
+        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+
+        byte[] first = "first".getBytes();
+        byte[] second = "second".getBytes();
+        byte[] third = "third".getBytes();
+
+        assertEquals(0L, log.append(first));
+        assertEquals(1L, log.append(second));
+        assertEquals(2L, log.append(third));
+        log.close();
+
+        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+
+        assertArrayEquals(first, log.read(0L));
+        assertArrayEquals(second, log.read(1L));
+        assertArrayEquals(third, log.read(2L));
+
+        byte[] afterRecovery = "after recovery".getBytes();
+        assertEquals(3L, log.append(afterRecovery));
+        assertArrayEquals(afterRecovery, log.read(3L));
+    }
 }
