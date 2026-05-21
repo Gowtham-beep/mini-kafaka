@@ -241,6 +241,7 @@ public class SegmentedLog {
     }
 
     public void recoveryServiceProtocol() throws IOException{
+        //phase 1
         if(!Files.exists(baseDir)){
             Files.createDirectories(baseDir);
         }
@@ -260,7 +261,7 @@ public class SegmentedLog {
             this.segments.add(this.currentSegment);
             return;
         }
-
+        //phase 2
         for(int i=0;i<logFiles.size();i++){
             Path logFile = logFiles.get(i);
             long baseOffset = extractBaseOffset(logFile);
@@ -338,9 +339,69 @@ public class SegmentedLog {
     }
 
     private void rebuildIndex(Path logFile, Path indexFile, long baseOffset) throws IOException {
-        // Placeholder for sequential log scan to drop anchors every N bytes.
-        // Similar to the Phase 4 forward scan, but writes to the index file.
-        Files.createFile(indexFile);
+        final int ANCHOR_INTERVAL = 4096; // Drop anchors every 4KB (matches Segment.INDEX_INTERVAL)
+        final int INDEX_ENTRY_SIZE = 16;  // 2 longs: logical offset (8 bytes) + byte position (8 bytes)
+        
+        try (FileChannel logChannel = FileChannel.open(logFile, StandardOpenOption.READ);
+             FileChannel indexChannel = FileChannel.open(indexFile, 
+                StandardOpenOption.WRITE, 
+                StandardOpenOption.CREATE, 
+                StandardOpenOption.TRUNCATE_EXISTING
+            )) {
+            
+            ByteBuffer headerBuffer = ByteBuffer.allocate(Integer.BYTES);
+            CRC32 crc32 = new CRC32();
+            long validWritePosition = 0;
+            long messageCount = 0;
+            long lastAnchorPosition = 0;
+            ByteBuffer indexWriter = ByteBuffer.allocate(INDEX_ENTRY_SIZE);
+            
+            while (validWritePosition + Integer.BYTES <= maxFileSize) {
+                headerBuffer.clear();
+                logChannel.position(validWritePosition);
+                if (logChannel.read(headerBuffer) < Integer.BYTES) break;
+                headerBuffer.flip();
+                int messageLength = headerBuffer.getInt();
+                
+                if (messageLength <= 0) break;
+                long recordSize = Integer.BYTES + (long) messageLength + Integer.BYTES;
+                if (validWritePosition + recordSize > maxFileSize) break;
+                
+                ByteBuffer payloadBuffer = ByteBuffer.allocate(messageLength);
+                if (logChannel.read(payloadBuffer) < messageLength) break;
+                payloadBuffer.flip();
+                
+                ByteBuffer crcBuffer = ByteBuffer.allocate(Integer.BYTES);
+                if (logChannel.read(crcBuffer) < Integer.BYTES) break;
+                crcBuffer.flip();
+                long storedCrc = Integer.toUnsignedLong(crcBuffer.getInt());
+                
+                byte[] payload = new byte[messageLength];
+                payloadBuffer.get(payload);
+                crc32.reset();
+                crc32.update(payload);
+                if (crc32.getValue() != storedCrc) {
+                    System.err.println("Corruption detected at physical position " + validWritePosition + ". Halting index rebuild.");
+                    break;
+                }
+                
+                // Write index anchor every ANCHOR_INTERVAL bytes
+                if (validWritePosition - lastAnchorPosition >= ANCHOR_INTERVAL) {
+                    long logicalOffset = baseOffset + messageCount;
+                    indexWriter.clear();
+                    indexWriter.putLong(logicalOffset);
+                    indexWriter.putLong(validWritePosition);
+                    indexWriter.flip();
+                    indexChannel.write(indexWriter);
+                    lastAnchorPosition = validWritePosition;
+                }
+                
+                validWritePosition += recordSize;
+                messageCount++;
+            }
+            
+            indexChannel.force(true);  // Ensure all index data is written to disk
+        }
     }
 
     private record RecoveryState(long messageCount, long writePosition) {}

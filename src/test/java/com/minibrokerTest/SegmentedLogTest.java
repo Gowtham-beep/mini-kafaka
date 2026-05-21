@@ -30,13 +30,11 @@ public class SegmentedLogTest {
     @TempDir
     Path tempDir;
 
-    private Path logPath;
     private SegmentedLog log;
 
     @BeforeEach
-    void setup() throws IOException{
-         logPath = tempDir.resolve("test.log");
-         log = new SegmentedLog(0L, logPath);
+    void setup() throws IOException {
+        log = new SegmentedLog(0L, tempDir);
     }
 
     @AfterEach
@@ -71,7 +69,7 @@ public class SegmentedLogTest {
     @Test
     void testSegmentRotationOnSizeLimit() throws IOException,InterruptedException{
         long maxSegmentSize = 250;
-        log = new SegmentedLog(0L,logPath,maxSegmentSize);
+        log = new SegmentedLog(0L,tempDir,maxSegmentSize);
 
         byte[] payload = new byte[100];
         for (int i = 0; i < payload.length; i++) {
@@ -95,7 +93,7 @@ public class SegmentedLogTest {
         assertArrayEquals(payload, log.read(1));
 
         long fileCount;
-        try(Stream<Path> files = Files.list(logPath)){
+        try(Stream<Path> files = Files.list(tempDir)){
             fileCount = files.filter(p->p.toString().endsWith(".log")).count();
         }
         assertEquals(2, fileCount, "There should be exactly two physical .log files on the disk.");   
@@ -108,7 +106,7 @@ public class SegmentedLogTest {
         long recordPerSegment = 10;
         long maxSegmentSize = recordSize * recordPerSegment;
 
-        log = new SegmentedLog(0L,logPath,maxSegmentSize);
+        log = new SegmentedLog(0L,tempDir,maxSegmentSize);
 
         int threadCount = 50;
         int messagesPerThread = 20;
@@ -146,7 +144,7 @@ public class SegmentedLogTest {
         assertTrue(threadExceptions.isEmpty(), "Threads threw exceptions during concurrent writes: " + threadExceptions);
 
         long fileCount;
-        try(Stream<Path> files = Files.list(logPath)){
+        try(Stream<Path> files = Files.list(tempDir)){
             fileCount = files.filter(p->p.toString().endsWith(".log")).count();
         }
         assertEquals(100, fileCount, "Thundering herd breached the lock! Found incorrect number of physical files.");
@@ -161,7 +159,7 @@ public class SegmentedLogTest {
     @Test
     void testSegmentBoundarySeam() throws IOException,InterruptedException{
         int maxSegmentSize = 216; // Exactly 2 records (108 bytes each)
-        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+        log = new SegmentedLog(0L, tempDir, maxSegmentSize);
 
         byte[] payload = new byte[100];
         for (int i = 0; i < payload.length; i++) {
@@ -179,7 +177,7 @@ public class SegmentedLogTest {
         assertArrayEquals(payload, log.read(2), "Failed to read the first message of the new segment");
         
         long fileCount;
-        try (Stream<Path> files = Files.list(logPath)) {
+        try (Stream<Path> files = Files.list(tempDir)) {
             fileCount = files.filter(p -> p.toString().endsWith(".log")).count();
         }
         assertEquals(2, fileCount, "Should have rotated after 2 records.");
@@ -188,7 +186,7 @@ public class SegmentedLogTest {
     @Test
     void testRetentionPolicyDeletion() throws IOException,InterruptedException{
         int maxSegmentSize = 216; // 2 records per segment
-        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+        log = new SegmentedLog(0L, tempDir, maxSegmentSize);
         byte[] payload = new byte[100];
 
         // 6 messages -> 3 segments (0-1, 2-3, 4-5)
@@ -201,7 +199,7 @@ public class SegmentedLogTest {
         log.delete(2L);
 
         long fileCount;
-        try (Stream<Path> files = Files.list(logPath)) {
+        try (Stream<Path> files = Files.list(tempDir)) {
             fileCount = files.filter(p -> p.toString().endsWith(".log")).count();
         }
         assertEquals(2, fileCount, "Disk should only contain Segment 2 and Segment 4.");
@@ -215,7 +213,7 @@ public class SegmentedLogTest {
 
     @Test
     void testCleanShutdownSealsActiveSegment() throws IOException {
-        log = new SegmentedLog(0L, logPath);
+        log = new SegmentedLog(0L, tempDir);
         byte[] payload = "Final words".getBytes();
         log.append(payload);
         log.close();
@@ -227,7 +225,7 @@ public class SegmentedLogTest {
     @Test
     void testRecoveryRestoresSegmentsAndContinuesOffsets() throws IOException, InterruptedException {
         int maxSegmentSize = 216;
-        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+        log = new SegmentedLog(0L, tempDir, maxSegmentSize);
 
         byte[] first = "first".getBytes();
         byte[] second = "second".getBytes();
@@ -238,7 +236,7 @@ public class SegmentedLogTest {
         assertEquals(2L, log.append(third));
         log.close();
 
-        log = new SegmentedLog(0L, logPath, maxSegmentSize);
+        log = new SegmentedLog(0L, tempDir, maxSegmentSize);
 
         assertArrayEquals(first, log.read(0L));
         assertArrayEquals(second, log.read(1L));

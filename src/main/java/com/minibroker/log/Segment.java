@@ -272,13 +272,30 @@ public class Segment implements Comparable<Segment> {
     public long getWritePosition() {
         return writePosition.get();
     }
+    private long getHighestCommittedOffset() {
+        
+        return this.highWatermark.get();
+    }
 
     void recoverState(long recoveredMessageCount, long recoveredWritePosition) {
         this.messageCount.set(recoveredMessageCount);
         this.writePosition.set(recoveredWritePosition);
         this.highWatermark.set(recoveredWritePosition);
         this.pendingAppends.clear();
-        this.indexPosition.set(0);
-        this.lastIndexBytesPos.set(recoveredWritePosition);
+        
+        long pos = 0;
+        long lastBytesPos = 0;
+        ByteBuffer buf = this.indexBuffer.duplicate();
+        while (pos + INDEX_ENTRY_SIZE <= this.maxIndexSize) {
+            long entryBytePos = buf.getLong((int) pos + 8);
+            if (entryBytePos > 0) {
+                lastBytesPos = entryBytePos;
+                pos += INDEX_ENTRY_SIZE;
+            } else {
+                break;
+            }
+        }
+        this.indexPosition.set(pos);
+        this.lastIndexBytesPos.set(lastBytesPos);
     }
 }
