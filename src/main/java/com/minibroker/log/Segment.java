@@ -87,15 +87,24 @@ public class Segment implements Comparable<Segment> {
     public Segment(long baseOffset, Path logPath, Path indexPath) throws IOException {
         this(baseOffset, logPath, indexPath, DEFAULT_MAX_FILE_SIZE);
     }
+
     public long append(byte[] payload){
+        return append(0L,payload);
+    }
+
+    public long append(long term,byte[] payload){
         if(isSealed){
             throw new IllegalStateException("Segment is sealed , no writes allowed...");
         }
 
+        ByteBuffer crcbuf = ByteBuffer.allocate(8+ payload.length);
+        crcbuf.putLong(term);
+        crcbuf.put(payload);
+
         CRC32 crc = new CRC32();
-        crc.update(payload);
+        crc.update(crcbuf.array());
         int crc32 = (int) crc.getValue();
-        int totalBytes = 4 + payload.length + 4;
+        int totalBytes = 16 + payload.length ;
 
         long claimedWritePos;
         while(true){
@@ -116,6 +125,7 @@ public class Segment implements Comparable<Segment> {
 
         ByteBuffer buf = logBuffer.duplicate();
         buf.position((int)claimedWritePos);
+        buf.putLong(term);
         buf.putInt(payload.length);
         buf.put(payload);
         buf.putInt(crc32);
@@ -168,53 +178,59 @@ public class Segment implements Comparable<Segment> {
         this.indexFileChannel.close(); 
     }
 
-    public byte[] read(long logicalOffset){
+    private long getPhysicalPosition(long logicalOffset){
         if(logicalOffset<this.baseOffset){
-            throw new OffsetOutOfRangeException("Invalid logical offset: " + logicalOffset);
+            throw new OffsetOutOfRangeException("Invalid logicaloffset"+ logicalOffset);
         }
-        
         long maxOffset = this.baseOffset + this.messageCount.get();
-        if(logicalOffset >= maxOffset){
-            throw new OffsetOutOfRangeException("Offset not yet written: " + logicalOffset);
+        if(logicalOffset>maxOffset){
+            throw new OffsetOutOfRangeException("Offset not yet written" + logicalOffset);
         }
-        
         long indexPos = this.indexPosition.get();
         long entryCount = indexPos/INDEX_ENTRY_SIZE;
 
         long anchorLogicalOffset = this.baseOffset;
         long anchorBytePos = 0;
 
-        int lo = 0;
+        int lo=0;
         int hi = (int)entryCount -1;
 
         if(entryCount>0){
-            while(lo<=hi){
-            int mid = lo +(hi-lo)/2;
-            long entryOffset = this.indexBuffer.getLong(mid*INDEX_ENTRY_SIZE);
-            if(entryOffset==logicalOffset){
-                hi = mid;
-                break;
-            }else if(entryOffset<logicalOffset){
-                lo = mid +1;
-            }else{
-                hi = mid -1;
+            while (lo<=hi) {
+                int mid = lo + (hi-lo)/2;
+                long entryOffset = this.indexBuffer.getLong(mid*INDEX_ENTRY_SIZE);
+                if(entryOffset==logicalOffset){
+                    hi = mid;
+                    break;
+                }else if(entryOffset<logicalOffset){
+                    lo = mid +1;
+                }else{
+                    hi = mid -1;
+                }
+            }
+            if(hi>=0){
+                anchorLogicalOffset = this.indexBuffer.getLong(hi*INDEX_ENTRY_SIZE);
+                anchorBytePos = this.indexBuffer.getLong((hi*INDEX_ENTRY_SIZE)+8);
             }
         }
-        
-        if(hi>=0){
-            anchorLogicalOffset = this.indexBuffer.getLong(hi*INDEX_ENTRY_SIZE);
-            anchorBytePos = this.indexBuffer.getLong((hi*INDEX_ENTRY_SIZE)+8);
-        }
-        }
-
         long currOffset = anchorLogicalOffset;
         long pos = anchorBytePos;
 
-        while (currOffset<logicalOffset) {
-            int length = this.logBuffer.getInt((int)pos);
-            pos +=(4+length+4);
+        while(currOffset<logicalOffset){
+            int length = this.logBuffer.getInt((int)pos+8);
+            pos += (16+length);
             currOffset++;
         }
+        return pos;
+    }
+
+    public long getTermAtOffset(long logicalOffset){
+        int pos = (int)getPhysicalPosition(logicalOffset);
+        return this.logBuffer.getLong((int)pos);
+    }
+
+    public byte[] read(long logicalOffset){
+        int pos = (int) getPhysicalPosition(logicalOffset);
         int length = this.logBuffer.getInt((int)pos);
         
         long messageEndPos = pos + 4 + length + 4;
