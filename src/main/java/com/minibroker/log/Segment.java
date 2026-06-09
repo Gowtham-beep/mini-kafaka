@@ -29,6 +29,7 @@ public class Segment implements Comparable<Segment> {
     private final long baseOffset;
     private final AtomicLong writePosition = new AtomicLong(0);
     private final AtomicLong highWatermark = new AtomicLong(0);
+    private final AtomicLong contiguousWritePosition = new AtomicLong(0);
     private final ConcurrentMap<Long, Integer> pendingAppends = new ConcurrentHashMap<>();
     private final AtomicLong messageCount = new AtomicLong(0);
     private final AtomicLong indexPosition = new AtomicLong(0);
@@ -183,8 +184,8 @@ public class Segment implements Comparable<Segment> {
             throw new OffsetOutOfRangeException("Invalid logicaloffset"+ logicalOffset);
         }
         long maxOffset = this.baseOffset + this.messageCount.get();
-        if(logicalOffset>maxOffset){
-            throw new OffsetOutOfRangeException("Offset not yet written" + logicalOffset);
+        if(logicalOffset>=maxOffset){
+            throw new OffsetOutOfRangeException("Offset not yet written: " + logicalOffset);
         }
         long indexPos = this.indexPosition.get();
         long entryCount = indexPos/INDEX_ENTRY_SIZE;
@@ -226,14 +227,24 @@ public class Segment implements Comparable<Segment> {
 
     public long getTermAtOffset(long logicalOffset){
         int pos = (int)getPhysicalPosition(logicalOffset);
-        return this.logBuffer.getLong((int)pos);
+        while (pendingAppends.containsKey((long)pos)) {
+            LockSupport.parkNanos(1);
+        }
+
+        return this.logBuffer.getLong(pos);
     }
 
     public byte[] read(long logicalOffset){
         int pos = (int) getPhysicalPosition(logicalOffset);
-        int length = this.logBuffer.getInt((int)pos);
+
+        while (pendingAppends.containsKey((long)pos)) {
+            LockSupport.parkNanos(1);
+        }
+
+        long term = this.logBuffer.getLong(pos);
+        int length = this.logBuffer.getInt(pos + 8);
         
-        long messageEndPos = pos + 4 + length + 4;
+        long messageEndPos = pos + 16 + length;
         if (messageEndPos > highWatermark.get()) {
             throw new OffsetOutOfRangeException("Message not yet committed");
         }
@@ -241,14 +252,18 @@ public class Segment implements Comparable<Segment> {
         byte[] payload = new byte[length];
 
         for(int i=0;i<length;i++){
-            payload[i] = this.logBuffer.get((int)pos+4+i);
+            payload[i] = this.logBuffer.get(pos + 12 + i);
         }
        
 
-        int storedCRC = this.logBuffer.getInt((int)pos+4+length);
+        int storedCRC = this.logBuffer.getInt(pos + 12 + length);
+        
+        ByteBuffer crcBuf = ByteBuffer.allocate(8 + length);
+        crcBuf.putLong(term);
+        crcBuf.put(payload);
         
         CRC32 crc = new CRC32();
-        crc.update(payload);
+        crc.update(crcBuf.array());
         int computedCrc32 = (int) crc.getValue();
 
         if(storedCRC != computedCrc32){
@@ -256,7 +271,6 @@ public class Segment implements Comparable<Segment> {
         }
 
         return payload;
-        
     }
     
     public void deleteFiles(){
@@ -287,10 +301,6 @@ public class Segment implements Comparable<Segment> {
 
     public long getWritePosition() {
         return writePosition.get();
-    }
-    private long getHighestCommittedOffset() {
-        
-        return this.highWatermark.get();
     }
 
     void recoverState(long recoveredMessageCount, long recoveredWritePosition) {

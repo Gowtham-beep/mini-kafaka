@@ -102,7 +102,7 @@ public class SegmentedLogTest {
     @Test
     void testThunderingHerdRotation() throws Exception{
         long payloadSize = 100;
-        long recordSize = payloadSize + 8;
+        long recordSize = payloadSize + 16;
         long recordPerSegment = 10;
         long maxSegmentSize = recordSize * recordPerSegment;
 
@@ -158,7 +158,7 @@ public class SegmentedLogTest {
 
     @Test
     void testSegmentBoundarySeam() throws IOException,InterruptedException{
-        int maxSegmentSize = 216; // Exactly 2 records (108 bytes each)
+        int maxSegmentSize = 232; // Exactly 2 records (116 bytes each)
         log = new SegmentedLog(0L, tempDir, maxSegmentSize);
 
         byte[] payload = new byte[100];
@@ -185,7 +185,7 @@ public class SegmentedLogTest {
 
     @Test
     void testRetentionPolicyDeletion() throws IOException,InterruptedException{
-        int maxSegmentSize = 216; // 2 records per segment
+        int maxSegmentSize = 232; // 2 records per segment
         log = new SegmentedLog(0L, tempDir, maxSegmentSize);
         byte[] payload = new byte[100];
 

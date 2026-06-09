@@ -99,7 +99,7 @@ public class SegmentedLogDeletionRaceTest {
                 startGun.await();
                 
                
-                Thread.sleep(5); 
+                Thread.sleep(100); 
                 
                 
                 log.delete(lastOffset);

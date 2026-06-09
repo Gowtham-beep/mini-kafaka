@@ -63,6 +63,9 @@ public class SegmentedLog {
     }
 //hot path 
     public long append(byte[] payload){
+        return append(0L,payload);
+    }
+    public long append(long term ,byte[] payload){
         if (closed) {
             throw new IllegalStateException("Log is closed");
         }
@@ -70,7 +73,7 @@ public class SegmentedLog {
         while(true){
             Segment activeSegment = this.currentSegment;
             try{
-                logicalOffset =  activeSegment.append(payload);
+                logicalOffset =  activeSegment.append(term,payload);
                 break;
 
             }catch(IllegalStateException e){
@@ -146,6 +149,34 @@ public class SegmentedLog {
         }
     }
 
+    public long getTermAtOffset(long logicalOffset){
+        routingLock.readLock().lock();
+        try{
+            Segment traSegment = findSegment(logicalOffset);
+            if(traSegment == null){
+                throw new OffsetOutOfRangeException("offset" + logicalOffset + "is out of range");
+            }
+            return traSegment.getTermAtOffset(logicalOffset);
+        }finally{
+            routingLock.readLock().unlock();
+        }
+    }
+
+    public long getLastOffset(){
+        if(segments.isEmpty()){
+            return -1;
+        }
+        Segment lastSegment = segments.get(segments.size() -1);
+        long  messageCount = lastSegment.getMessageCount();
+        if(messageCount ==0){
+            if(segments.size()>1){
+                Segment prevSegment = segments.get(segments.size()-2);
+                return prevSegment.getBaseOffset() + prevSegment.getBaseOffset()-1;
+            }
+            return -1;
+        }
+        return lastSegment.getBaseOffset() + messageCount -1;
+    }
     private Segment findSegment(long logicalOffset){
         int lo =0;
         int hi = segments.size() -1;
@@ -289,18 +320,20 @@ public class SegmentedLog {
         long validMessageCount = 0;
 
         try (FileChannel logChannel = FileChannel.open(logFile, StandardOpenOption.READ, StandardOpenOption.WRITE)){
-            ByteBuffer headerBuffer = ByteBuffer.allocate(Integer.BYTES);
+            ByteBuffer headerBuffer = ByteBuffer.allocate(12);
             CRC32 crc32 = new CRC32();
 
-            while(validWritePosition + Integer.BYTES <= maxFileSize){
+            while(validWritePosition + 12 <= maxFileSize){
                 headerBuffer.clear();
                 logChannel.position(validWritePosition);
-                if(logChannel.read(headerBuffer) < Integer.BYTES) break;
+                if(logChannel.read(headerBuffer) < 12) break;
                 headerBuffer.flip();
+
+                long term =headerBuffer.getLong();
                 int messageLength = headerBuffer.getInt();
 
                 if(messageLength <= 0) break;
-                long recordSize = Integer.BYTES + (long) messageLength + Integer.BYTES;
+                long recordSize = 16L + messageLength;
                 if(validWritePosition + recordSize > maxFileSize) break;
 
                 ByteBuffer payloadBuffer = ByteBuffer.allocate(messageLength);
@@ -312,10 +345,13 @@ public class SegmentedLog {
                 crcBuffer.flip();
                 long storedCrc = Integer.toUnsignedLong(crcBuffer.getInt());
 
-                byte[] payload = new byte[messageLength];
-                payloadBuffer.get(payload);
+                ByteBuffer crcCalBuffer = ByteBuffer.allocate(8+messageLength);
+                crcCalBuffer.putLong(term);
+                crcCalBuffer.put(payloadBuffer);
+
                 crc32.reset();
-                crc32.update(payload);
+                crcCalBuffer.flip();
+                crc32.update(crcCalBuffer);
                 if(crc32.getValue() != storedCrc){
                     System.err.println("Corruption detected at physical position " + validWritePosition + ". Halting scan.");
                     break;
@@ -349,37 +385,44 @@ public class SegmentedLog {
                 StandardOpenOption.TRUNCATE_EXISTING
             )) {
             
-            ByteBuffer headerBuffer = ByteBuffer.allocate(Integer.BYTES);
+            ByteBuffer headerBuffer = ByteBuffer.allocate(12);
             CRC32 crc32 = new CRC32();
             long validWritePosition = 0;
             long messageCount = 0;
             long lastAnchorPosition = 0;
             ByteBuffer indexWriter = ByteBuffer.allocate(INDEX_ENTRY_SIZE);
             
-            while (validWritePosition + Integer.BYTES <= maxFileSize) {
+            while (validWritePosition +12 <= maxFileSize) {
                 headerBuffer.clear();
                 logChannel.position(validWritePosition);
-                if (logChannel.read(headerBuffer) < Integer.BYTES) break;
+                if (logChannel.read(headerBuffer) < 12) break;
                 headerBuffer.flip();
+
+                long term = headerBuffer.getLong();
                 int messageLength = headerBuffer.getInt();
                 
                 if (messageLength <= 0) break;
-                long recordSize = Integer.BYTES + (long) messageLength + Integer.BYTES;
+                long recordSize = 16L +messageLength + Integer.BYTES;
                 if (validWritePosition + recordSize > maxFileSize) break;
                 
                 ByteBuffer payloadBuffer = ByteBuffer.allocate(messageLength);
                 if (logChannel.read(payloadBuffer) < messageLength) break;
                 payloadBuffer.flip();
+
+                byte[] payload = new byte[messageLength];
+                payloadBuffer.get(payload);
                 
                 ByteBuffer crcBuffer = ByteBuffer.allocate(Integer.BYTES);
                 if (logChannel.read(crcBuffer) < Integer.BYTES) break;
                 crcBuffer.flip();
                 long storedCrc = Integer.toUnsignedLong(crcBuffer.getInt());
                 
-                byte[] payload = new byte[messageLength];
-                payloadBuffer.get(payload);
+                ByteBuffer crcCalBuffer = ByteBuffer.allocate(8 + messageLength);
+                crcCalBuffer.putLong(term);
+                crcCalBuffer.put(payload);
                 crc32.reset();
-                crc32.update(payload);
+                crcCalBuffer.flip();
+                crc32.update(crcCalBuffer);
                 if (crc32.getValue() != storedCrc) {
                     System.err.println("Corruption detected at physical position " + validWritePosition + ". Halting index rebuild.");
                     break;
