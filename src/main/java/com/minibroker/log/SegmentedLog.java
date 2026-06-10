@@ -171,7 +171,7 @@ public class SegmentedLog {
         if(messageCount ==0){
             if(segments.size()>1){
                 Segment prevSegment = segments.get(segments.size()-2);
-                return prevSegment.getBaseOffset() + prevSegment.getBaseOffset()-1;
+                return prevSegment.getBaseOffset() + prevSegment.getMessageCount()-1;
             }
             return -1;
         }
