@@ -150,7 +150,7 @@ public class RaftNode {
                 electionTimer.stop();
                 currentLeaderId=myNodeId;
 
-                long nextIdx = log.getLastOffset();
+                long nextIdx = log.getLastOffset()+1;
                 for(String peer:clusterPeers){
                     nextIndex.put(peer, nextIdx);
                     matchIndex.put(peer, 0L);
