@@ -1,17 +1,19 @@
 package com.minibroker.raft;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
-import com.minibroker.log.Segment;
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.AppendEntriesRequest;
 import com.minibroker.raft.rpc.AppendentrieResponse;
 import com.minibroker.raft.rpc.LogEntry;
+import com.minibroker.raft.rpc.RecordMetaData;
 import com.minibroker.raft.rpc.RequestVoteRequest;
 import com.minibroker.raft.rpc.RequestVoteResponse;
 
@@ -22,16 +24,16 @@ public class RaftNode {
     private final ReentrantLock stateLock = new ReentrantLock();
 
     private final String myNodeId;
-    private final String currentLeaderId = null;
+    private String currentLeaderId = null;
     private final SegmentedLog log;
 
-    private long currentTerm =0;
+    private long currentTerm = 0;
     private String votedFor = null;
 
     private final List<String> clusterPeers;
 
     private NodeState state = NodeState.FOLLOWER;
-    private final long commitIndex = 0;
+    private long commitIndex = 0;
     private long lastApplied = 0;
 
     private final Map<String,Long> nextIndex = new ConcurrentHashMap<>();
@@ -46,7 +48,7 @@ public class RaftNode {
         SegmentedLog log,
         RpcClient rpcClient,
         ElectionTimer electionTimer,
-        RequestPurgatory purgatory
+        RequestPurgatory purgatory,
         List<String> clusterPeers
     ){
         this.myNodeId = myNodeId;
@@ -57,14 +59,14 @@ public class RaftNode {
         this.clusterPeers = clusterPeers;
     }
 
-    public RequestVoteResponse handlerequestVote(RequestVoteRequest rpc){
+    public RequestVoteResponse handleRequestVote(RequestVoteRequest rpc){
         stateLock.lock();
         try{
             if(rpc.term()<currentTerm){
             return new RequestVoteResponse(currentTerm,false);
         }
         if(rpc.term()>currentTerm){
-            stepDownToFollwer(rpc.term());
+            stepDownToFollower(rpc.term());
         }
         if(votedFor!=null && !votedFor.equals(rpc.candidateId())){
             return new RequestVoteResponse(currentTerm,false);
@@ -87,19 +89,19 @@ public class RaftNode {
         }
     }
 
-    public AppendentrieResponse handlAppendentrieRequest(AppendEntriesRequest rpc){
+    public AppendentrieResponse handleAppendEntriesRequest(AppendEntriesRequest rpc){
         stateLock.lock();
         try{
             if(rpc.term()<currentTerm){
                 return new AppendentrieResponse(currentTerm,false);
             }
             if(rpc.term()>currentTerm || state!=NodeState.FOLLOWER){
-                stepDownToFollwer(rpc.term());
+                stepDownToFollower(rpc.term());
             }
             electionTimer.reset();
             currentLeaderId = rpc.leaderId();
 
-            long myLastIndex= log.getLastOffset();
+            long myLastIndex = log.getLastOffset();
             if(myLastIndex<rpc.prevLogIndex()){
                 return new AppendentrieResponse(currentTerm,false);
             }
@@ -111,10 +113,19 @@ public class RaftNode {
                 }
             }
             if(rpc.entries()!=null && !rpc.entries().isEmpty()){
-                log.truncateFromOffset(rpc.prevLogIndex()+1);
-
-                for(LogEntry entry: rpc.entries()){
-                    log.append(entry.term(),entry.payload());
+                long index = rpc.prevLogIndex() + 1;
+                boolean conflict = false;
+                for (LogEntry entry : rpc.entries()) {
+                    if (index <= log.getLastOffset()) {
+                        if (log.getTermAtOffset(index) != entry.term()) {
+                            log.truncateFromOffset(index);
+                            conflict = true;
+                        }
+                    }
+                    if (conflict || index > log.getLastOffset()) {
+                        log.append(entry.term(), entry.payload());
+                    }
+                    index++;
                 }
             }
             if(rpc.leaderCommit()>commitIndex){
@@ -126,23 +137,22 @@ public class RaftNode {
             stateLock.unlock();
             }
         }
-        private void stepDownToFollwer( long newTerm){
+        private void stepDownToFollower( long newTerm){
             stateLock.lock();
             try{
-                stepDownToFollwoerLocked(newTerm);
+                stepDownToFollowerLocked(newTerm);
             }finally{
                 stateLock.unlock();
             }
         }
 
-        private void stepDownToFollwoerLocked(long term){
+        private void stepDownToFollowerLocked(long term){
             state = NodeState.FOLLOWER;
             currentTerm= term;
             votedFor=null;
             electionTimer.reset();
         }
 
-    
         private void  becomeLeader(){
             stateLock.lock();
             try{
@@ -161,6 +171,7 @@ public class RaftNode {
                 stateLock.unlock();
             }
         }
+        
         public void handleElectionTimeout(){
             long campaignTerm;
             long lastLogIndex;
@@ -183,22 +194,27 @@ public class RaftNode {
 
 
             AtomicInteger voteReceived = new AtomicInteger(1);
-            int requiredQourm = (clusterPeers.size()/2)+1;
+            int requiredQuorum = ((clusterPeers.size() + 1) / 2) + 1;
             RequestVoteRequest request = new RequestVoteRequest(campaignTerm,myNodeId,lastLogIndex,lastLogTerm);
 
+            if (voteReceived.get() >= requiredQuorum) {
+                becomeLeader();
+                return;
+            }
+
             for(String peer: clusterPeers){
-                networkClient.sendrequestVote(peer,request).thenAccept(response->{
+                rpcClient.sendrequestVote(peer,request).thenAccept(response->{
                     stateLock.lock();
                     try{
                         if(currentTerm!=campaignTerm|| state!=NodeState.CANDIDATE){
                             return;
                         }
                         if(response.term()>currentTerm){
-                            stepDownToFollwer(response.term());
+                            stepDownToFollower(response.term());
                             return;
                         }
                         if(response.voteGranted()){
-                            if(voteReceived.incrementAndGet()>=requiredQourm){
+                            if(voteReceived.incrementAndGet()>=requiredQuorum){
                                 becomeLeader();
                             }
                         }
@@ -209,5 +225,119 @@ public class RaftNode {
             }
             
         }
-    
+
+        public CompletableFuture<RecordMetaData> appendMessage(byte[] payload){
+            long logicalOffset;
+            var future = new CompletableFuture<RecordMetaData>();
+            stateLock.lock();
+            try{
+                if(state!= NodeState.LEADER){
+                    future.completeExceptionally(new NotLeaderException(currentLeaderId));
+                    return future;
+                }
+                logicalOffset = log.append(currentTerm, payload);
+                purgatory.put(logicalOffset,future);
+                broadcastAppendEntries();
+            }finally{
+                stateLock.unlock();
+            }
+            return future;
+        }
+
+        public void onFollowerAck(String peer,AppendentrieResponse response,long sentOffset){
+            stateLock.lock();
+            try{
+                if(state!=NodeState.LEADER){
+                    return;
+                }
+                if(response.term()>currentTerm){
+                    stepDownToFollower(response.term());
+                    return;
+                }
+                if(response.success()){
+                    matchIndex.put(peer, sentOffset);
+                    nextIndex.put(peer,sentOffset+1);
+
+                    if(checkQuorum(sentOffset)){
+                        commitIndex=sentOffset;
+                        purgatory.resolveAllUpTo(sentOffset);
+
+                    }
+                }else{
+                    long currentNextIndex = nextIndex.getOrDefault(peer, 1L);
+                    if(currentNextIndex>0){
+                        nextIndex.put(peer, currentNextIndex -1);
+                        sendAppendEntriesToPeer(peer);
+                    }
+                }
+            }finally{
+                stateLock.unlock();
+            }
+        }
+        
+        private boolean checkQuorum(long targetOffset){
+            if(targetOffset<=commitIndex){
+                return false;
+            }
+            if(targetOffset<0 || log.getTermAtOffset(targetOffset)!=currentTerm){
+                return false;
+            }
+            int replicaCount = 1;
+            for(String peer: clusterPeers){
+                if(matchIndex.getOrDefault(peer, 0L)>=targetOffset){
+                    replicaCount++;
+                }
+            }
+            int majorityThreshold = ((clusterPeers.size() + 1) / 2) + 1;
+            return replicaCount>=majorityThreshold;
+        }
+
+        private void sendAppendEntriesToPeer(String peer) {
+            stateLock.lock();
+            try {
+                if (state != NodeState.LEADER) {
+                    return;
+                }
+                long prevLogIndex = nextIndex.getOrDefault(peer, 1L) - 1;
+                long prevLogTerm = 0;
+                if (prevLogIndex >= 0) {
+                    prevLogTerm = log.getTermAtOffset(prevLogIndex);
+                }
+
+                List<LogEntry> entries = new ArrayList<>();
+                long lastOffset = log.getLastOffset();
+                for (long idx = nextIndex.getOrDefault(peer, 1L); idx <= lastOffset; idx++) {
+                    try {
+                        byte[] payload = log.read(idx);
+                        long term = log.getTermAtOffset(idx);
+                        entries.add(new LogEntry(term, payload));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+
+                AppendEntriesRequest request = new AppendEntriesRequest(
+                    currentTerm,
+                    myNodeId,
+                    prevLogIndex,
+                    prevLogTerm,
+                    entries,
+                    commitIndex
+                );
+
+                rpcClient.sendAppendEntries(peer, request).thenAccept(response -> {
+                    onFollowerAck(peer, response, prevLogIndex + entries.size());
+                });
+
+            } finally {
+                stateLock.unlock();
+            }
+        }
+
+        private void broadcastAppendEntries() {
+            for (String peer : clusterPeers) {
+                sendAppendEntriesToPeer(peer);
+            }
+        }
 }

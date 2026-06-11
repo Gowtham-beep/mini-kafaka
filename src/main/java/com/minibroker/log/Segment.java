@@ -35,8 +35,8 @@ public class Segment implements Comparable<Segment> {
     private final AtomicLong indexPosition = new AtomicLong(0);
     private final AtomicLong lastIndexBytesPos = new AtomicLong(0);
    
-    private final Path logPath;
-    private final Path indexPath;
+    final Path logPath;
+    final Path indexPath;
 
     private final FileChannel logFileChannel;
     private final FileChannel indexFileChannel;
@@ -322,6 +322,56 @@ public class Segment implements Comparable<Segment> {
             }
         }
         this.indexPosition.set(pos);
+        this.lastIndexBytesPos.set(lastBytesPos);
+    }
+
+    public void truncate(long logicalOffset) {
+        if (logicalOffset < this.baseOffset) {
+            throw new IllegalArgumentException("Cannot truncate below base offset");
+        }
+        long maxOffset = this.baseOffset + this.messageCount.get();
+        if (logicalOffset >= maxOffset) {
+            return; // Nothing to truncate
+        }
+
+        long pos = getPhysicalPosition(logicalOffset);
+        
+        // Zero out the header at the truncation point to stop recovery scanner
+        logBuffer.putLong((int) pos, 0L);
+        logBuffer.putInt((int) pos + 8, 0);
+
+        // Update counts and positions
+        this.messageCount.set(logicalOffset - this.baseOffset);
+        this.writePosition.set(pos);
+        this.highWatermark.set(pos);
+        this.pendingAppends.clear();
+
+        // Update index
+        long idxPos = 0;
+        long lastBytesPos = 0;
+        ByteBuffer buf = this.indexBuffer.duplicate();
+        while (idxPos + INDEX_ENTRY_SIZE <= this.maxIndexSize) {
+            long entryLogicalOffset = buf.getLong((int) idxPos);
+            long entryBytePos = buf.getLong((int) idxPos + 8);
+            if (entryBytePos > 0 && entryLogicalOffset < logicalOffset) {
+                lastBytesPos = entryBytePos;
+                idxPos += INDEX_ENTRY_SIZE;
+            } else {
+                break;
+            }
+        }
+        
+        // Zero out discarded index entries
+        ByteBuffer idxBuf = this.indexBuffer.duplicate();
+        idxBuf.position((int) idxPos);
+        long tempIdx = idxPos;
+        while (tempIdx < this.indexPosition.get()) {
+            idxBuf.putLong(0L);
+            idxBuf.putLong(0L);
+            tempIdx += INDEX_ENTRY_SIZE;
+        }
+
+        this.indexPosition.set(idxPos);
         this.lastIndexBytesPos.set(lastBytesPos);
     }
 }

@@ -447,5 +447,92 @@ public class SegmentedLog {
         }
     }
 
+    public void truncateFromOffset(long logicalOffset) {
+        routingLock.writeLock().lock();
+        try {
+            if (segments.isEmpty()) {
+                return;
+            }
+            // Find the segment containing the offset
+            int targetSegmentIdx = -1;
+            for (int i = 0; i < segments.size(); i++) {
+                Segment seg = segments.get(i);
+                long nextBaseOffset = seg.getBaseOffset() + seg.getMessageCount();
+                if (logicalOffset >= seg.getBaseOffset() && logicalOffset < nextBaseOffset) {
+                    targetSegmentIdx = i;
+                    break;
+                }
+            }
+
+            if (targetSegmentIdx == -1) {
+                // If the offset is beyond the end of the log, do nothing
+                if (logicalOffset >= getLastOffset() + 1) {
+                    return;
+                }
+                // If the offset is before the first segment, truncate everything
+                if (logicalOffset < segments.get(0).getBaseOffset()) {
+                    targetSegmentIdx = 0;
+                    logicalOffset = segments.get(0).getBaseOffset();
+                }
+            }
+
+            // Remove and delete all segments after targetSegmentIdx
+            List<Segment> toRemove = new ArrayList<>();
+            for (int i = targetSegmentIdx + 1; i < segments.size(); i++) {
+                toRemove.add(segments.get(i));
+            }
+            segments.removeAll(toRemove);
+            for (Segment seg : toRemove) {
+                try {
+                    seg.closeChannels();
+                    seg.deleteFiles();
+                } catch (IOException e) {
+                    System.err.println("Failed to delete segment file during truncation: " + e.getMessage());
+                }
+            }
+
+            // Truncate the target segment
+            Segment targetSegment = segments.get(targetSegmentIdx);
+            
+            // If we are truncating at the base offset of the target segment,
+            // we should also delete the target segment, unless it is the only segment left.
+            if (logicalOffset == targetSegment.getBaseOffset() && segments.size() > 1) {
+                segments.remove(targetSegment);
+                try {
+                    targetSegment.closeChannels();
+                    targetSegment.deleteFiles();
+                } catch (IOException e) {
+                    System.err.println("Failed to delete segment file during truncation: " + e.getMessage());
+                }
+            } else {
+                if (targetSegment.isSealed() || targetSegmentIdx == segments.size() - 1) {
+                    // Close the old targetSegment channels
+                    try {
+                        targetSegment.closeChannels();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                    // Re-open it
+                    try {
+                        Segment newSeg = new Segment(targetSegment.getBaseOffset(), targetSegment.logPath, targetSegment.indexPath, maxFileSize);
+                        newSeg.recoverState(targetSegment.getMessageCount(), targetSegment.getWritePosition());
+                        newSeg.truncate(logicalOffset);
+                        segments.set(targetSegmentIdx, newSeg);
+                    } catch (IOException e) {
+                        throw new RuntimeException("Failed to reopen segment during truncation", e);
+                    }
+                } else {
+                    targetSegment.truncate(logicalOffset);
+                }
+            }
+
+            // Update currentSegment to the last segment in the list
+            this.currentSegment = segments.get(segments.size() - 1);
+
+        } finally {
+            routingLock.writeLock().unlock();
+        }
+    }
+
     private record RecoveryState(long messageCount, long writePosition) {}
 }
