@@ -129,15 +129,20 @@ public class RaftNode {
         private void stepDownToFollwer( long newTerm){
             stateLock.lock();
             try{
-                state = NodeState.FOLLOWER;
-                currentTerm = newTerm;
-                votedFor = null;
-                electionTimer.reset();
-
+                stepDownToFollwoerLocked(newTerm);
             }finally{
                 stateLock.unlock();
             }
         }
+
+        private void stepDownToFollwoerLocked(long term){
+            state = NodeState.FOLLOWER;
+            currentTerm= term;
+            votedFor=null;
+            electionTimer.reset();
+        }
+
+    
         private void  becomeLeader(){
             stateLock.lock();
             try{
