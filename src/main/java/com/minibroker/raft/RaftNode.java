@@ -3,6 +3,7 @@ package com.minibroker.raft;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -123,8 +124,85 @@ public class RaftNode {
 
             }finally{
             stateLock.unlock();
+            }
         }
+        private void stepDownToFollwer( long newTerm){
+            stateLock.lock();
+            try{
+                state = NodeState.FOLLOWER;
+                currentTerm = newTerm;
+                votedFor = null;
+                electionTimer.reset();
+
+            }finally{
+                stateLock.unlock();
+            }
         }
-    
+        private void  becomeLeader(){
+            stateLock.lock();
+            try{
+                state = NodeState.LEADER;
+                electionTimer.stop();
+                currentLeaderId=myNodeId;
+
+                long nextIdx = log.getLastOffset();
+                for(String peer:clusterPeers){
+                    nextIndex.put(peer, nextIdx);
+                    matchIndex.put(peer, 0L);
+                }
+                broadcastAppendEntries();
+
+            }finally{
+                stateLock.unlock();
+            }
+        }
+        public void handleElectionTimeout(){
+            long campaignTerm;
+            long lastLogIndex;
+            long lastLogTerm;
+
+            stateLock.lock();
+            try{
+                state = NodeState.CANDIDATE;
+                currentTerm++;
+                votedFor=myNodeId;
+                electionTimer.reset();
+
+                lastLogIndex = log.getLastOffset();
+                lastLogTerm = (lastLogIndex<0)?0:log.getTermAtOffset(lastLogIndex);
+
+                campaignTerm=currentTerm;
+            }finally{
+                stateLock.unlock();
+            }
+
+
+            AtomicInteger voteReceived = new AtomicInteger(1);
+            int requiredQourm = (clusterPeers.size()/2)+1;
+            RequestVoteRequest request = new RequestVoteRequest(campaignTerm,myNodeId,lastLogIndex,lastLogTerm);
+
+            for(String peer: clusterPeers){
+                networkClient.sendrequestVote(peer,request).thenAccept(response->{
+                    stateLock.lock();
+                    try{
+                        if(currentTerm!=campaignTerm|| state!=NodeState.CANDIDATE){
+                            return;
+                        }
+                        if(response.term()>currentTerm){
+                            stepDownToFollwer(response.term());
+                            return;
+                        }
+                        if(response.voteGranted()){
+                            if(voteReceived.incrementAndGet()>=requiredQourm){
+                                becomeLeader();
+                            }
+                        }
+                    }finally{
+                        stateLock.unlock();
+                    }
+                });
+            }
+            
+        }
     
 }
