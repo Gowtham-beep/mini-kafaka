@@ -34,7 +34,6 @@ public class RaftNode {
 
     private NodeState state = NodeState.FOLLOWER;
     private long commitIndex = 0;
-    private long lastApplied = 0;
 
     private final Map<String,Long> nextIndex = new ConcurrentHashMap<>();
     private final Map<String, Long> matchIndex = new ConcurrentHashMap<>(); 
