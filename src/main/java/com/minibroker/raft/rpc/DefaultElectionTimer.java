@@ -26,8 +26,15 @@ public class DefaultElectionTimer implements ElectionTimer {
         }
         long timeOutMs = ThreadLocalRandom.current().nextLong(150,300);
 
-        currentTimer = scheduler.schedule(
-            raftNode::handleElectionTimeout,
+        currentTimer = scheduler.schedule(()->{
+                    try {
+                raftNode.handleElectionTimeout();
+                    } catch (Exception e) {
+                        System.err.println("Election timeout handler failed: " + e.getMessage());
+                        reset(); 
+                    }
+                }
+            ,
             timeOutMs, 
             TimeUnit.MILLISECONDS
         );
@@ -42,7 +49,7 @@ public class DefaultElectionTimer implements ElectionTimer {
     }
     @Override
     public void shutDown(){
-        scheduler.shutdown();
+        scheduler.shutdownNow();
     }
     
 
