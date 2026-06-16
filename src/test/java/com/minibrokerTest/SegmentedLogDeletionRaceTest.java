@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,6 +63,7 @@ public class SegmentedLogDeletionRaceTest {
         AtomicInteger successfulReads = new AtomicInteger(0);
         AtomicInteger expectedExpiredErrors = new AtomicInteger(0);
         List<Exception> fatalExceptions = new CopyOnWriteArrayList<>();
+        AtomicBoolean stopReaders = new AtomicBoolean(false);
 
       
         for (int i = 0; i < readerCount; i++) {
@@ -69,19 +71,16 @@ public class SegmentedLogDeletionRaceTest {
                 try {
                     startGun.await();
                     
-                    for (int j = 0; j < 5000; j++) {
+                    while (!stopReaders.get() && !Thread.currentThread().isInterrupted()) {
                         try {
                             byte[] data = log.read(0);
-                            
                             
                             if (data != null && data.length > 0) {
                                 successfulReads.incrementAndGet();
                             }
                         } catch (OffsetOutOfRangeException e) {
-                            
                             expectedExpiredErrors.incrementAndGet();
                         } catch (Exception e) {
-                         
                             fatalExceptions.add(e);
                         }
                     }
@@ -98,15 +97,22 @@ public class SegmentedLogDeletionRaceTest {
             try {
                 startGun.await();
                 
-               
-                Thread.sleep(100); 
-                
+                // Ensure readers have started reading before deleting
+                while (successfulReads.get() == 0 && !Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(10);
+                }
                 
                 log.delete(lastOffset);
+                
+                // Wait for at least one reader to notice the deletion
+                while (expectedExpiredErrors.get() == 0 && !Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(10);
+                }
 
             } catch (Exception e) {
                 fatalExceptions.add(e);
             } finally {
+                stopReaders.set(true);
                 finishLine.countDown();
             }
         });
