@@ -5,5 +5,5 @@ public record RequestVoteRequest(
     String candidateId,
     long lastLogIndex,
     long lastLogTerm
-){} 
+) implements RaftMessage{} 
 

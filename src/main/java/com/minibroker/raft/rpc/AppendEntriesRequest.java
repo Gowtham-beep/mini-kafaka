@@ -8,4 +8,4 @@ public record AppendEntriesRequest(long term,
     long prevLogTerm,
     List<LogEntry> entries,
     long leaderCommit
-) {}
+) implements RaftMessage {}

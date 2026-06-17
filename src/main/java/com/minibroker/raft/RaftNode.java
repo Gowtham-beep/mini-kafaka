@@ -11,7 +11,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.AppendEntriesRequest;
-import com.minibroker.raft.rpc.AppendentrieResponse;
+import com.minibroker.raft.rpc.AppendEntrieResponse;
 import com.minibroker.raft.rpc.LogEntry;
 import com.minibroker.raft.rpc.RecordMetaData;
 import com.minibroker.raft.rpc.RequestVoteRequest;
@@ -88,11 +88,11 @@ public class RaftNode {
         }
     }
 
-    public AppendentrieResponse handleAppendEntriesRequest(AppendEntriesRequest rpc){
+    public AppendEntrieResponse handleAppendEntriesRequest(AppendEntriesRequest rpc){
         stateLock.lock();
         try{
             if(rpc.term()<currentTerm){
-                return new AppendentrieResponse(currentTerm,false);
+                return new AppendEntrieResponse(currentTerm,false);
             }
             if(rpc.term()>currentTerm || state!=NodeState.FOLLOWER){
                 stepDownToFollower(rpc.term());
@@ -102,13 +102,13 @@ public class RaftNode {
 
             long myLastIndex = log.getLastOffset();
             if(myLastIndex<rpc.prevLogIndex()){
-                return new AppendentrieResponse(currentTerm,false);
+                return new AppendEntrieResponse(currentTerm,false);
             }
             
             if(rpc.prevLogIndex()>=0){
                 long myPrevLogTerm = log.getTermAtOffset(rpc.prevLogIndex());
                 if(myPrevLogTerm!=rpc.prevLogTerm()){
-                    return new AppendentrieResponse(currentTerm,false);
+                    return new AppendEntrieResponse(currentTerm,false);
                 }
             }
             if(rpc.entries()!=null && !rpc.entries().isEmpty()){
@@ -130,7 +130,7 @@ public class RaftNode {
             if(rpc.leaderCommit()>commitIndex){
                 commitIndex = Math.min(rpc.leaderCommit(),log.getLastOffset());
             }
-            return new AppendentrieResponse(currentTerm,true);
+            return new AppendEntrieResponse(currentTerm,true);
 
             }finally{
             stateLock.unlock();
@@ -243,7 +243,7 @@ public class RaftNode {
             return future;
         }
 
-        public void onFollowerAck(String peer,AppendentrieResponse response,long sentOffset){
+        public void onFollowerAck(String peer,AppendEntrieResponse response,long sentOffset){
             stateLock.lock();
             try{
                 if(state!=NodeState.LEADER){
