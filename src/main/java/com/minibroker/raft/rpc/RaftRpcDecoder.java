@@ -15,19 +15,20 @@ public class RaftRpcDecoder extends MessageToMessageDecoder<ByteBuf> {
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
        
-        if (in.readableBytes() < 1) {
+        if (in.readableBytes() < 9) {
             return;
         }
         byte opcode = in.readByte();
+        long correlationId = in.readLong();
         switch (opcode) {
-            case 1 -> out.add(decodeAppendEntriesRequest(in));
-            case 2 -> out.add(decodeAppendEntriesResponse(in));
-            case 3 -> out.add(decodeRequestVoteRequest(in));
-            case 4 -> out.add(decodeRequestVoteResponse(in));
+            case 1 -> out.add(decodeAppendEntriesRequest(in, correlationId));
+            case 2 -> out.add(decodeAppendEntriesResponse(in, correlationId));
+            case 3 -> out.add(decodeRequestVoteRequest(in, correlationId));
+            case 4 -> out.add(decodeRequestVoteResponse(in, correlationId));
             default -> throw new IllegalArgumentException("Unknown wire opcode received: " + opcode);
         }
     }
-    private AppendEntriesRequest decodeAppendEntriesRequest(ByteBuf in){
+    private AppendEntriesRequest decodeAppendEntriesRequest(ByteBuf in, long correlationId){
         long term = in.readLong();
         int leaderIdLen = in.readInt();
         String leaderId = in.readCharSequence(leaderIdLen, StandardCharsets.UTF_8).toString();  
@@ -45,29 +46,29 @@ public class RaftRpcDecoder extends MessageToMessageDecoder<ByteBuf> {
             entries.add(new LogEntry(entryTerm,payload));
         }
         long leaderCommit = in.readLong();
-        return new AppendEntriesRequest(term,leaderId,prevLogIndex,prevLogTerm,entries,leaderCommit);
+        return new AppendEntriesRequest(correlationId,term,leaderId,prevLogIndex,prevLogTerm,entries,leaderCommit);
     }
 
-    private AppendEntrieResponse decodeAppendEntriesResponse(ByteBuf in){
+    private AppendEntrieResponse decodeAppendEntriesResponse(ByteBuf in, long correlationId){
         long term = in.readLong();
         boolean success = in.readByte()==1;
-        return new AppendEntrieResponse(term,success);
+        return new AppendEntrieResponse(correlationId,term,success);
     }
 
-    private RequestVoteRequest decodeRequestVoteRequest(ByteBuf in){
+    private RequestVoteRequest decodeRequestVoteRequest(ByteBuf in, long correlationId){
         long term = in.readLong();
         int candidateIdLen = in.readInt();
         String candidateId = in.readCharSequence(candidateIdLen, StandardCharsets.UTF_8).toString();
 
         long lastLogIndex = in.readLong();
         long lastLogTerm = in.readLong();
-        return new RequestVoteRequest(term,candidateId,lastLogIndex,lastLogTerm);
+        return new RequestVoteRequest(correlationId,term,candidateId,lastLogIndex,lastLogTerm);
     }
 
-    private RequestVoteResponse decodeRequestVoteResponse(ByteBuf in){
+    private RequestVoteResponse decodeRequestVoteResponse(ByteBuf in, long correlationId){
         long term = in.readLong();
         boolean voteGranted = in.readByte()==1;
-        return new RequestVoteResponse(term,voteGranted);
+        return new RequestVoteResponse(correlationId,term,voteGranted);
     
     }
 }

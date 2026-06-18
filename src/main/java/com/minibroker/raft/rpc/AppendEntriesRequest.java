@@ -2,7 +2,9 @@ package com.minibroker.raft.rpc;
 
 import java.util.List;
 
-public record AppendEntriesRequest(long term,
+public record AppendEntriesRequest(
+    long correlationId,
+    long term,
     String leaderId,
     long prevLogIndex,
     long prevLogTerm,

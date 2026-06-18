@@ -41,6 +41,7 @@ public class RaftNode {
     private final RpcClient rpcClient;
     private final ElectionTimer electionTimer;
     private final RequestPurgatory purgatory;
+    private final AtomicLong correlationIdGenerator = new AtomicLong(0);
 
     public RaftNode(
         String myNodeId,
@@ -62,13 +63,13 @@ public class RaftNode {
         stateLock.lock();
         try{
             if(rpc.term()<currentTerm){
-            return new RequestVoteResponse(currentTerm,false);
+            return new RequestVoteResponse(rpc.correlationId(), currentTerm,false);
         }
         if(rpc.term()>currentTerm){
             stepDownToFollower(rpc.term());
         }
         if(votedFor!=null && !votedFor.equals(rpc.candidateId())){
-            return new RequestVoteResponse(currentTerm,false);
+            return new RequestVoteResponse(rpc.correlationId(), currentTerm,false);
         }
         long myLastIndex = log.getLastOffset();
         long myLastTerm = (myLastIndex<0)?0:log.getTermAtOffset(myLastIndex);
@@ -76,13 +77,13 @@ public class RaftNode {
         boolean candidateLogIsOlder = (rpc.lastLogTerm()<myLastTerm)||(rpc.lastLogTerm()==myLastTerm && rpc.lastLogIndex()<myLastIndex);
 
         if(candidateLogIsOlder){
-        return new RequestVoteResponse(currentTerm, false);
+        return new RequestVoteResponse(rpc.correlationId(), currentTerm, false);
         }
 
         votedFor = rpc.candidateId();
         electionTimer.reset();
 
-        return new RequestVoteResponse(currentTerm,true);
+        return new RequestVoteResponse(rpc.correlationId(), currentTerm,true);
         }finally{
             stateLock.unlock();
         }
@@ -92,7 +93,7 @@ public class RaftNode {
         stateLock.lock();
         try{
             if(rpc.term()<currentTerm){
-                return new AppendEntrieResponse(currentTerm,false);
+                return new AppendEntrieResponse(rpc.correlationId(), currentTerm,false);
             }
             if(rpc.term()>currentTerm || state!=NodeState.FOLLOWER){
                 stepDownToFollower(rpc.term());
@@ -102,13 +103,13 @@ public class RaftNode {
 
             long myLastIndex = log.getLastOffset();
             if(myLastIndex<rpc.prevLogIndex()){
-                return new AppendEntrieResponse(currentTerm,false);
+                return new AppendEntrieResponse(rpc.correlationId(), currentTerm,false);
             }
             
             if(rpc.prevLogIndex()>=0){
                 long myPrevLogTerm = log.getTermAtOffset(rpc.prevLogIndex());
                 if(myPrevLogTerm!=rpc.prevLogTerm()){
-                    return new AppendEntrieResponse(currentTerm,false);
+                    return new AppendEntrieResponse(rpc.correlationId(), currentTerm,false);
                 }
             }
             if(rpc.entries()!=null && !rpc.entries().isEmpty()){
@@ -130,7 +131,7 @@ public class RaftNode {
             if(rpc.leaderCommit()>commitIndex){
                 commitIndex = Math.min(rpc.leaderCommit(),log.getLastOffset());
             }
-            return new AppendEntrieResponse(currentTerm,true);
+            return new AppendEntrieResponse(rpc.correlationId(), currentTerm,true);
 
             }finally{
             stateLock.unlock();
@@ -194,7 +195,7 @@ public class RaftNode {
 
             AtomicInteger voteReceived = new AtomicInteger(1);
             int requiredQuorum = ((clusterPeers.size() + 1) / 2) + 1;
-            RequestVoteRequest request = new RequestVoteRequest(campaignTerm,myNodeId,lastLogIndex,lastLogTerm);
+            RequestVoteRequest request = new RequestVoteRequest(correlationIdGenerator.incrementAndGet(), campaignTerm,myNodeId,lastLogIndex,lastLogTerm);
 
             if (voteReceived.get() >= requiredQuorum) {
                 becomeLeader();
@@ -317,6 +318,7 @@ public class RaftNode {
                 }
 
                 AppendEntriesRequest request = new AppendEntriesRequest(
+                    correlationIdGenerator.incrementAndGet(),
                     currentTerm,
                     myNodeId,
                     prevLogIndex,

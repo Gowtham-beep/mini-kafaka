@@ -23,6 +23,7 @@ public class RaftRpcEncoder extends MessageToByteEncoder<RaftMessage> {
 
     private void encodeAppendEntriesRequest(AppendEntriesRequest req, ByteBuf out){
         out.writeByte(1);
+        out.writeLong(req.correlationId());
         out.writeLong(req.term());
 
         String leaderId = req.leaderId()!=null?req.leaderId():"";
@@ -48,12 +49,14 @@ public class RaftRpcEncoder extends MessageToByteEncoder<RaftMessage> {
 
     private void encodeAppendEntrieResponse(AppendEntrieResponse res, ByteBuf out){
         out.writeByte(2);
+        out.writeLong(res.correlationId());
         out.writeLong(res.term());
         out.writeByte(res.success()?1:0);
     }
 
     private void encodeRequestVoteRequest(RequestVoteRequest req, ByteBuf out){
         out.writeByte(3);
+        out.writeLong(req.correlationId());
         out.writeLong(req.term());
         String candidateId = req.candidateId()!=null?req.candidateId():"";
         int candidateIdLen = ByteBufUtil.utf8Bytes(candidateId);
@@ -65,6 +68,7 @@ public class RaftRpcEncoder extends MessageToByteEncoder<RaftMessage> {
 
     private void encodeRequestVoteResponse(RequestVoteResponse res, ByteBuf out) {
         out.writeByte(4);
+        out.writeLong(res.correlationId());
         out.writeLong(res.term());
         out.writeByte(res.voteGranted() ? 1 : 0);
     }
