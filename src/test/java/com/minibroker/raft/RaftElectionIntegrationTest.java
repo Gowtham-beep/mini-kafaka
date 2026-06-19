@@ -33,18 +33,23 @@ public class RaftElectionIntegrationTest {
 
         @Override
         public synchronized void reset() {
+            if (scheduler.isShutdown()) return;
             if (currentTimer != null) currentTimer.cancel(false);
             long timeout = ThreadLocalRandom.current().nextLong(150, 300);
-            currentTimer = scheduler.schedule(() -> {
-                if (node != null) {
-                    try {
-                        node.handleElectionTimeout();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        reset();
+            try {
+                currentTimer = scheduler.schedule(() -> {
+                    if (node != null) {
+                        try {
+                            node.handleElectionTimeout();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            reset();
+                        }
                     }
-                }
-            }, timeout, TimeUnit.MILLISECONDS);
+                }, timeout, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException e) {
+                // Ignore if scheduler shut down concurrently
+            }
         }
 
         @Override
@@ -115,17 +120,17 @@ public class RaftElectionIntegrationTest {
 
     @AfterEach
     public void tearDown() {
-        timer1.shutDown();
-        timer2.shutDown();
-        timer3.shutDown();
+        if (timer1 != null) timer1.shutDown();
+        if (timer2 != null) timer2.shutDown();
+        if (timer3 != null) timer3.shutDown();
         
-        client1.shutDown();
-        client2.shutDown();
-        client3.shutDown();
+        if (client1 != null) client1.shutDown();
+        if (client2 != null) client2.shutDown();
+        if (client3 != null) client3.shutDown();
         
-        server1.shutDown();
-        server2.shutDown();
-        server3.shutDown();
+        if (server1 != null) server1.shutDown();
+        if (server2 != null) server2.shutDown();
+        if (server3 != null) server3.shutDown();
     }
 
     private RaftNode.NodeState getNodeState(RaftNode node) throws Exception {
@@ -172,5 +177,69 @@ public class RaftElectionIntegrationTest {
         assertEquals(term1, term2, "Node 1 and Node 2 should have the same term.");
         assertEquals(term2, term3, "Node 2 and Node 3 should have the same term.");
         assertTrue(term1 > 0, "The settled term should be greater than 0.");
+    }
+
+    @Test
+    public void testLeaderFailureTriggersNewElection() throws Exception {
+        // Wait for the cluster to elect an initial leader
+        Thread.sleep(2000);
+
+        RaftNode.NodeState state1 = getNodeState(node1);
+        RaftNode.NodeState state2 = getNodeState(node2);
+        RaftNode.NodeState state3 = getNodeState(node3);
+
+        RaftNode leaderNode = null;
+        RaftServer leaderServer = null;
+        ProxyElectionTimer leaderTimer = null;
+        long initialTerm = -1;
+
+        if (state1 == RaftNode.NodeState.LEADER) {
+            leaderNode = node1; leaderServer = server1; leaderTimer = timer1;
+            initialTerm = getCurrentTerm(node1);
+        } else if (state2 == RaftNode.NodeState.LEADER) {
+            leaderNode = node2; leaderServer = server2; leaderTimer = timer2;
+            initialTerm = getCurrentTerm(node2);
+        } else if (state3 == RaftNode.NodeState.LEADER) {
+            leaderNode = node3; leaderServer = server3; leaderTimer = timer3;
+            initialTerm = getCurrentTerm(node3);
+        }
+
+        assertNotNull(leaderNode, "There should be an initial leader to kill.");
+
+        // 1. Kill the leader mid-test
+        if (leaderServer == server1) server1 = null;
+        else if (leaderServer == server2) server2 = null;
+        else if (leaderServer == server3) server3 = null;
+
+        if (leaderTimer == timer1) timer1 = null;
+        else if (leaderTimer == timer2) timer2 = null;
+        else if (leaderTimer == timer3) timer3 = null;
+
+        leaderServer.shutDown();
+        leaderTimer.shutDown();
+
+        // 2. Wait for followers to detect the failure and hold a new election
+        Thread.sleep(2000);
+
+        int newLeaderCount = 0;
+        int newFollowerCount = 0;
+        long newTerm = -1;
+
+        RaftNode[] allNodes = {node1, node2, node3};
+        for (RaftNode n : allNodes) {
+            if (n == leaderNode) continue; // Skip the dead node
+
+            RaftNode.NodeState s = getNodeState(n);
+            if (s == RaftNode.NodeState.LEADER) {
+                newLeaderCount++;
+                newTerm = getCurrentTerm(n);
+            } else if (s == RaftNode.NodeState.FOLLOWER) {
+                newFollowerCount++;
+            }
+        }
+
+        assertEquals(1, newLeaderCount, "There should be exactly one LEADER among the survivors.");
+        assertEquals(1, newFollowerCount, "There should be exactly one FOLLOWER among the survivors.");
+        assertTrue(newTerm > initialTerm, "The new leader should be elected with a higher term.");
     }
 }
