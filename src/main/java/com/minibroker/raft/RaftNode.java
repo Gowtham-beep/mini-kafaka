@@ -42,6 +42,7 @@ public class RaftNode {
     private final ElectionTimer electionTimer;
     private final RequestPurgatory purgatory;
     private final AtomicLong correlationIdGenerator = new AtomicLong(0);
+    private final java.util.concurrent.Executor raftConsensusExecutor;
 
     public RaftNode(
         String myNodeId,
@@ -57,6 +58,11 @@ public class RaftNode {
         this.electionTimer = electionTimer;
         this.purgatory = purgatory;
         this.clusterPeers = clusterPeers;
+        this.raftConsensusExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "raft-consensus-" + myNodeId);
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public RequestVoteResponse handleRequestVote(RequestVoteRequest rpc){
@@ -203,7 +209,7 @@ public class RaftNode {
             }
 
             for(String peer: clusterPeers){
-                rpcClient.sendRequestVote(peer,request).thenAccept(response->{
+                rpcClient.sendRequestVote(peer,request).thenAcceptAsync(response->{
                     stateLock.lock();
                     try{
                         if(currentTerm!=campaignTerm|| state!=NodeState.CANDIDATE){
@@ -221,7 +227,7 @@ public class RaftNode {
                     }finally{
                         stateLock.unlock();
                     }
-                });
+                }, raftConsensusExecutor);
             }
             
         }
@@ -327,9 +333,9 @@ public class RaftNode {
                     commitIndex
                 );
 
-                rpcClient.sendAppendEntries(peer, request).thenAccept(response -> {
+                rpcClient.sendAppendEntries(peer, request).thenAcceptAsync(response -> {
                     onFollowerAck(peer, response, prevLogIndex + entries.size());
-                });
+                }, raftConsensusExecutor);
 
             } finally {
                 stateLock.unlock();
