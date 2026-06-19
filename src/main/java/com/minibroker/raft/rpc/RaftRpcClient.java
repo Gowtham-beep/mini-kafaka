@@ -54,6 +54,7 @@ public class RaftRpcClient implements RpcClient  {
                 @Override
                 protected void initChannel(SocketChannel ch){
                     ChannelPipeline pipeline = ch.pipeline();
+                    pipeline.addLast("frameEncoder", new LengthFieldPrepender(4));
                     pipeline.addLast("encoder", new RaftRpcEncoder());
                     pipeline.addLast("frameDecoder", new LengthFieldBasedFrameDecoder(
                         10 * 1024 * 1024, 0, 4, 0, 4));

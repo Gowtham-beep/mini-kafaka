@@ -18,6 +18,7 @@ import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.handler.codec.LengthFieldPrepender;
 
 
 public class RaftServer {
@@ -56,6 +57,7 @@ public class RaftServer {
                 protected void initChannel(SocketChannel ch){
                     ChannelPipeline pipeline = ch.pipeline();
 
+                    pipeline.addLast("frameEncoder", new LengthFieldPrepender(4));
                     pipeline.addLast("encoder", new RaftRpcEncoder());
                     
                     pipeline.addLast("Framedecoder", new LengthFieldBasedFrameDecoder(
