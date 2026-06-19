@@ -203,7 +203,7 @@ public class RaftNode {
             }
 
             for(String peer: clusterPeers){
-                rpcClient.sendrequestVote(peer,request).thenAccept(response->{
+                rpcClient.sendRequestVote(peer,request).thenAccept(response->{
                     stateLock.lock();
                     try{
                         if(currentTerm!=campaignTerm|| state!=NodeState.CANDIDATE){
