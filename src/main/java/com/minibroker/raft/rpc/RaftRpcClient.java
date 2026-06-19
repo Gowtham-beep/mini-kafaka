@@ -127,10 +127,11 @@ public class RaftRpcClient implements RpcClient  {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown peer: " + peerId));
         }
         return peerchannels.compute(peerId,(key,existingFuture)->{
-            if(existingFuture!=null && !existingFuture.isCompletedExceptionally()){
-                if(!existingFuture.isDone() || existingFuture.join().isActive()){
-                    return existingFuture;
-                }
+            if(existingFuture!=null && !existingFuture.isDone()){
+                return existingFuture;
+            }
+            if(existingFuture!=null && existingFuture.isDone() && !existingFuture.isCompletedExceptionally()){
+                return existingFuture;
             }
 
             CompletableFuture<Channel> connectFuture = new CompletableFuture<>();
@@ -152,8 +153,8 @@ public class RaftRpcClient implements RpcClient  {
         System.out.println("Halting outbound Raft RPC Client loops...");
         pendingRequests.values().forEach(future->{
             future.completeExceptionally(new CancellationException("Client shut down initiated."));
-        pendingRequests.clear();
         });
+        pendingRequests.clear();
         peerchannels.values().forEach(future->{
             future.whenComplete((channel,ex)->{
               if(channel!=null && channel.isActive()){
