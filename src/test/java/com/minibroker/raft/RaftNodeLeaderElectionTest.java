@@ -81,6 +81,7 @@ class RaftNodeLeaderElectionTest {
 
         // Complete peer 2's future successfully (granting vote)
         peer2Future.complete(new RequestVoteResponse(1L, 1L, true));
+        Thread.sleep(50);
 
         // State should now be LEADER since it got 1 vote + its own vote = 2 (majority)
         assertEquals(RaftNode.NodeState.LEADER, getPrivateField("state"));
@@ -111,6 +112,7 @@ class RaftNodeLeaderElectionTest {
         peer3Future.complete(new RequestVoteResponse(1L, 1L, false));
 
         // Node got 1 vote + its own vote = 2. Needs 3 for majority.
+        Thread.sleep(50);
         assertEquals(RaftNode.NodeState.CANDIDATE, getPrivateField("state"));
     }
 
@@ -125,6 +127,7 @@ class RaftNodeLeaderElectionTest {
 
         // Complete peer 2's future with a higher term and vote denied
         peer2Future.complete(new RequestVoteResponse(1L, 2L, false));
+        Thread.sleep(50);
 
         // State should step down to FOLLOWER and term should update to 2
         assertEquals(RaftNode.NodeState.FOLLOWER, getPrivateField("state"));
@@ -142,6 +145,7 @@ class RaftNodeLeaderElectionTest {
 
         raftNode.handleElectionTimeout();
         peer2Future.complete(new RequestVoteResponse(1L, 1L, true)); // Win election
+        Thread.sleep(50);
 
         // Check nextIndex map
         Map<String, Long> nextIndex = (Map<String, Long>) getPrivateField("nextIndex");
@@ -160,6 +164,7 @@ class RaftNodeLeaderElectionTest {
 
         raftNode.handleElectionTimeout();
         peer2Future.complete(new RequestVoteResponse(1L, 1L, true)); // Win election
+        Thread.sleep(50);
 
         // Check matchIndex map
         Map<String, Long> matchIndex = (Map<String, Long>) getPrivateField("matchIndex");

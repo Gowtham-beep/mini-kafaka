@@ -70,6 +70,11 @@ class RaftNodeWritePathTest {
         when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(voteFuture);
         raftNode.handleElectionTimeout();
         voteFuture.complete(new RequestVoteResponse(1L, 1L, true));
+        try {
+            Thread.sleep(50);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     private Object getPrivateField(String fieldName) throws Exception {
