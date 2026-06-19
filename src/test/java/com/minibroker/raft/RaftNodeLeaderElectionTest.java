@@ -53,7 +53,7 @@ class RaftNodeLeaderElectionTest {
     @Test
     void testNodeTransitionsToCandidateAndIncrementsTermOnElectionTimeout() throws Exception {
         initRaftNode(List.of("node-2", "node-3"));
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
 
         raftNode.handleElectionTimeout();
 
@@ -63,7 +63,7 @@ class RaftNodeLeaderElectionTest {
 
         // Verify request was broadcasted with new term
         ArgumentCaptor<RequestVoteRequest> requestCaptor = ArgumentCaptor.forClass(RequestVoteRequest.class);
-        verify(mockRpcClient, times(2)).sendrequestVote(anyString(), requestCaptor.capture());
+        verify(mockRpcClient, times(2)).sendRequestVote(anyString(), requestCaptor.capture());
         assertEquals(1L, requestCaptor.getValue().term());
     }
 
@@ -74,13 +74,13 @@ class RaftNodeLeaderElectionTest {
         CompletableFuture<RequestVoteResponse> peer2Future = new CompletableFuture<>();
         CompletableFuture<RequestVoteResponse> peer3Future = new CompletableFuture<>();
 
-        when(mockRpcClient.sendrequestVote(eq("node-2"), any())).thenReturn(peer2Future);
-        when(mockRpcClient.sendrequestVote(eq("node-3"), any())).thenReturn(peer3Future);
+        when(mockRpcClient.sendRequestVote(eq("node-2"), any())).thenReturn(peer2Future);
+        when(mockRpcClient.sendRequestVote(eq("node-3"), any())).thenReturn(peer3Future);
 
         raftNode.handleElectionTimeout();
 
         // Complete peer 2's future successfully (granting vote)
-        peer2Future.complete(new RequestVoteResponse(1L, true));
+        peer2Future.complete(new RequestVoteResponse(1L, 1L, true));
 
         // State should now be LEADER since it got 1 vote + its own vote = 2 (majority)
         assertEquals(RaftNode.NodeState.LEADER, getPrivateField("state"));
@@ -97,18 +97,18 @@ class RaftNodeLeaderElectionTest {
         CompletableFuture<RequestVoteResponse> peer4Future = new CompletableFuture<>();
         CompletableFuture<RequestVoteResponse> peer5Future = new CompletableFuture<>();
 
-        when(mockRpcClient.sendrequestVote(eq("node-2"), any())).thenReturn(peer2Future);
-        when(mockRpcClient.sendrequestVote(eq("node-3"), any())).thenReturn(peer3Future);
-        when(mockRpcClient.sendrequestVote(eq("node-4"), any())).thenReturn(peer4Future);
-        when(mockRpcClient.sendrequestVote(eq("node-5"), any())).thenReturn(peer5Future);
+        when(mockRpcClient.sendRequestVote(eq("node-2"), any())).thenReturn(peer2Future);
+        when(mockRpcClient.sendRequestVote(eq("node-3"), any())).thenReturn(peer3Future);
+        when(mockRpcClient.sendRequestVote(eq("node-4"), any())).thenReturn(peer4Future);
+        when(mockRpcClient.sendRequestVote(eq("node-5"), any())).thenReturn(peer5Future);
 
         raftNode.handleElectionTimeout();
 
         // Complete peer 2's future successfully (granting vote)
-        peer2Future.complete(new RequestVoteResponse(1L, true));
+        peer2Future.complete(new RequestVoteResponse(1L, 1L, true));
         
         // Deny peer 3's vote
-        peer3Future.complete(new RequestVoteResponse(1L, false));
+        peer3Future.complete(new RequestVoteResponse(1L, 1L, false));
 
         // Node got 1 vote + its own vote = 2. Needs 3 for majority.
         assertEquals(RaftNode.NodeState.CANDIDATE, getPrivateField("state"));
@@ -119,12 +119,12 @@ class RaftNodeLeaderElectionTest {
         initRaftNode(List.of("node-2", "node-3"));
 
         CompletableFuture<RequestVoteResponse> peer2Future = new CompletableFuture<>();
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(peer2Future);
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(peer2Future);
 
         raftNode.handleElectionTimeout();
 
         // Complete peer 2's future with a higher term and vote denied
-        peer2Future.complete(new RequestVoteResponse(2L, false));
+        peer2Future.complete(new RequestVoteResponse(1L, 2L, false));
 
         // State should step down to FOLLOWER and term should update to 2
         assertEquals(RaftNode.NodeState.FOLLOWER, getPrivateField("state"));
@@ -138,10 +138,10 @@ class RaftNodeLeaderElectionTest {
         when(mockLog.getLastOffset()).thenReturn(10L); // Set log offset to 10
 
         CompletableFuture<RequestVoteResponse> peer2Future = new CompletableFuture<>();
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(peer2Future);
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(peer2Future);
 
         raftNode.handleElectionTimeout();
-        peer2Future.complete(new RequestVoteResponse(1L, true)); // Win election
+        peer2Future.complete(new RequestVoteResponse(1L, 1L, true)); // Win election
 
         // Check nextIndex map
         Map<String, Long> nextIndex = (Map<String, Long>) getPrivateField("nextIndex");
@@ -156,10 +156,10 @@ class RaftNodeLeaderElectionTest {
         when(mockLog.getLastOffset()).thenReturn(10L);
 
         CompletableFuture<RequestVoteResponse> peer2Future = new CompletableFuture<>();
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(peer2Future);
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(peer2Future);
 
         raftNode.handleElectionTimeout();
-        peer2Future.complete(new RequestVoteResponse(1L, true)); // Win election
+        peer2Future.complete(new RequestVoteResponse(1L, 1L, true)); // Win election
 
         // Check matchIndex map
         Map<String, Long> matchIndex = (Map<String, Long>) getPrivateField("matchIndex");

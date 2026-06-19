@@ -2,7 +2,7 @@ package com.minibroker.raft;
 
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.AppendEntriesRequest;
-import com.minibroker.raft.rpc.AppendentrieResponse;
+import com.minibroker.raft.rpc.AppendEntrieResponse;
 import com.minibroker.raft.rpc.LogEntry;
 import com.minibroker.raft.rpc.RequestVoteRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,11 +45,11 @@ class RaftNodeAppendEntriesTest {
     @Test
     void testNodeRejectsAppendEntriesFromStaleTermLeader() {
         // Arrange: Bump our node's term to 2
-        raftNode.handleRequestVote(new RequestVoteRequest(2, "candidate-A", 0, 0));
+        raftNode.handleRequestVote(new RequestVoteRequest(1L, 2, "candidate-A", 0, 0));
 
         // Act: Stale leader from term 1 sends heartbeat
-        AppendEntriesRequest request = new AppendEntriesRequest(1, "stale-leader", 0, 0, List.of(), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 1, "stale-leader", 0, 0, List.of(), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertFalse(response.success());
@@ -59,12 +59,12 @@ class RaftNodeAppendEntriesTest {
     @Test
     void testNodeStepsDownToFollowerWhenAppendEntriesArrivesFromHigherTerm() {
         // Arrange: Node is candidate in term 1
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
         raftNode.handleElectionTimeout();
 
         // Act: Leader from term 2 sends heartbeat
-        AppendEntriesRequest request = new AppendEntriesRequest(2, "new-leader", -1, 0, List.of(), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 2, "new-leader", -1, 0, List.of(), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertTrue(response.success());
@@ -78,8 +78,8 @@ class RaftNodeAppendEntriesTest {
         when(mockLog.getLastOffset()).thenReturn(5L);
 
         // Act: Leader thinks we are at index 10
-        AppendEntriesRequest request = new AppendEntriesRequest(1, "leader", 10, 1, List.of(), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 1, "leader", 10, 1, List.of(), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertFalse(response.success());
@@ -92,8 +92,8 @@ class RaftNodeAppendEntriesTest {
         when(mockLog.getTermAtOffset(3L)).thenReturn(1L);
 
         // Act: Leader sends logs starting after index 3, but expects term 2 at index 3
-        AppendEntriesRequest request = new AppendEntriesRequest(2, "leader", 3, 2, List.of(), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 2, "leader", 3, 2, List.of(), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertFalse(response.success());
@@ -109,8 +109,8 @@ class RaftNodeAppendEntriesTest {
         LogEntry newEntry = new LogEntry(2, payload);
         
         // Act: Leader sends new entry at index 6
-        AppendEntriesRequest request = new AppendEntriesRequest(2, "leader", 5, 1, List.of(newEntry), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 2, "leader", 5, 1, List.of(newEntry), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertTrue(response.success());
@@ -124,7 +124,7 @@ class RaftNodeAppendEntriesTest {
         when(mockLog.getTermAtOffset(10L)).thenReturn(1L);
 
         // Act: Leader sends heartbeat with leaderCommit = 8
-        AppendEntriesRequest request = new AppendEntriesRequest(1, "leader", 10, 1, List.of(), 8);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 1, "leader", 10, 1, List.of(), 8);
         raftNode.handleAppendEntriesRequest(request);
 
         // Assert: Read private commitIndex field via Reflection
@@ -146,8 +146,8 @@ class RaftNodeAppendEntriesTest {
         LogEntry conflictingEntryReplacement = new LogEntry(2, payload);
 
         // Act: Leader sends new entry for index 3, but with term 2
-        AppendEntriesRequest request = new AppendEntriesRequest(2, "leader", 2, 1, List.of(conflictingEntryReplacement), 0);
-        AppendentrieResponse response = raftNode.handleAppendEntriesRequest(request);
+        AppendEntriesRequest request = new AppendEntriesRequest(1L, 2, "leader", 2, 1, List.of(conflictingEntryReplacement), 0);
+        AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(request);
 
         // Assert
         assertTrue(response.success());

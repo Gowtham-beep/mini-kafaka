@@ -42,7 +42,7 @@ public class RaftNodeRequestVoteTest {
     @Test
     void testFollowerGrantsVoteWhenCandidateHasHigherTermAndUpToDateLog() {
         // Arrange: Candidate has term 2, our term is 0. Candidate log is up-to-date.
-        RequestVoteRequest request = new RequestVoteRequest(2, "candidate-A", 0, 0);
+        RequestVoteRequest request = new RequestVoteRequest(1L, 2, "candidate-A", 0, 0);
 
         // Act
         RequestVoteResponse response = raftNode.handleRequestVote(request);
@@ -56,10 +56,10 @@ public class RaftNodeRequestVoteTest {
     @Test
     void testFollowerDeniesVoteWhenCandidateTermIsLowerThanCurrentTerm() {
         // Arrange: We force our node to have a higher term (e.g., term 2) by receiving a newer vote request first
-        raftNode.handleRequestVote(new RequestVoteRequest(2, "candidate-A", 0, 0));
+        raftNode.handleRequestVote(new RequestVoteRequest(1L, 2, "candidate-A", 0, 0));
 
         // Candidate requests vote with term 1 (lower)
-        RequestVoteRequest staleRequest = new RequestVoteRequest(1, "candidate-B", 0, 0);
+        RequestVoteRequest staleRequest = new RequestVoteRequest(1L, 1, "candidate-B", 0, 0);
 
         // Act
         RequestVoteResponse response = raftNode.handleRequestVote(staleRequest);
@@ -72,10 +72,10 @@ public class RaftNodeRequestVoteTest {
     @Test
     void testFollowerDeniesVoteWhenAlreadyVotedForDifferentCandidateInSameTerm() {
         // Arrange: Node votes for candidate-A in term 1
-        raftNode.handleRequestVote(new RequestVoteRequest(1, "candidate-A", 0, 0));
+        raftNode.handleRequestVote(new RequestVoteRequest(1L, 1, "candidate-A", 0, 0));
 
         // Act: Candidate-B asks for vote in the same term 1
-        RequestVoteRequest competingRequest = new RequestVoteRequest(1, "candidate-B", 0, 0);
+        RequestVoteRequest competingRequest = new RequestVoteRequest(1L, 1, "candidate-B", 0, 0);
         RequestVoteResponse response = raftNode.handleRequestVote(competingRequest);
 
         // Assert
@@ -85,10 +85,10 @@ public class RaftNodeRequestVoteTest {
     @Test
     void testFollowerGrantsVoteToSameCandidateTwiceInSameTerm() {
         // Arrange: Node votes for candidate-A in term 1
-        raftNode.handleRequestVote(new RequestVoteRequest(1, "candidate-A", 0, 0));
+        raftNode.handleRequestVote(new RequestVoteRequest(1L, 1, "candidate-A", 0, 0));
 
         // Act: Candidate-A asks for vote AGAIN in the same term 1 (e.g., duplicate RPC)
-        RequestVoteRequest duplicateRequest = new RequestVoteRequest(1, "candidate-A", 0, 0);
+        RequestVoteRequest duplicateRequest = new RequestVoteRequest(1L, 1, "candidate-A", 0, 0);
         RequestVoteResponse response = raftNode.handleRequestVote(duplicateRequest);
 
         // Assert
@@ -103,7 +103,7 @@ public class RaftNodeRequestVoteTest {
         when(mockLog.getTermAtOffset(5L)).thenReturn(1L);
 
         // Candidate has a shorter log in the same term (last offset = 3, term = 1)
-        RequestVoteRequest request = new RequestVoteRequest(2, "candidate-A", 3, 1);
+        RequestVoteRequest request = new RequestVoteRequest(1L, 2, "candidate-A", 3, 1);
 
         // Act
         RequestVoteResponse response = raftNode.handleRequestVote(request);
@@ -119,7 +119,7 @@ public class RaftNodeRequestVoteTest {
         when(mockLog.getTermAtOffset(5L)).thenReturn(3L);
 
         // Candidate's log is very long, but ends at term 2 (older term wins over longer log)
-        RequestVoteRequest request = new RequestVoteRequest(4, "candidate-A", 100, 2);
+        RequestVoteRequest request = new RequestVoteRequest(1L, 4, "candidate-A", 100, 2);
 
         // Act
         RequestVoteResponse response = raftNode.handleRequestVote(request);
@@ -132,11 +132,11 @@ public class RaftNodeRequestVoteTest {
     void testFollowerStepsDownAndGrantsVoteWhenCandidateTermIsHigher() throws Exception {
         // Arrange: Force our node to be a CANDIDATE or LEADER in term 1
         // We simulate this by having it handle an election timeout
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
         raftNode.handleElectionTimeout(); // Now term=1, state=CANDIDATE, votedFor=node-1
         
         // Candidate-B comes along with term 2 and up-to-date log
-        RequestVoteRequest request = new RequestVoteRequest(2, "candidate-B", 0, 0);
+        RequestVoteRequest request = new RequestVoteRequest(1L, 2, "candidate-B", 0, 0);
 
         // Act
         RequestVoteResponse response = raftNode.handleRequestVote(request);

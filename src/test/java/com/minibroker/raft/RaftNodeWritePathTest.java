@@ -1,7 +1,7 @@
 package com.minibroker.raft;
 
 import com.minibroker.log.SegmentedLog;
-import com.minibroker.raft.rpc.AppendentrieResponse;
+import com.minibroker.raft.rpc.AppendEntrieResponse;
 import com.minibroker.raft.rpc.RequestVoteResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +46,7 @@ class RaftNodeWritePathTest {
     }
 
     private void makeLeader() {
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(new CompletableFuture<>());
         raftNode.handleElectionTimeout();
 
         // Complete the votes immediately (simulating we win the election)
@@ -56,7 +56,7 @@ class RaftNodeWritePathTest {
             
             // Simulating winning the election
             // For a cluster of 5 nodes, we need 2 more votes
-            raftNode.handleRequestVote(new com.minibroker.raft.rpc.RequestVoteRequest(1L, "node-1", -1, 0)); // This won't do much but just in case
+            raftNode.handleRequestVote(new com.minibroker.raft.rpc.RequestVoteRequest(1L, 1L, "node-1", -1, 0)); // This won't do much but just in case
             
             // To properly mock the election win without complex async logic, we can use reflection 
             // but the cleanest way is just completing the futures if we intercept them
@@ -67,9 +67,9 @@ class RaftNodeWritePathTest {
     
     private void makeLeaderProperly(int peerCount) {
         CompletableFuture<RequestVoteResponse> voteFuture = new CompletableFuture<>();
-        when(mockRpcClient.sendrequestVote(anyString(), any())).thenReturn(voteFuture);
+        when(mockRpcClient.sendRequestVote(anyString(), any())).thenReturn(voteFuture);
         raftNode.handleElectionTimeout();
-        voteFuture.complete(new RequestVoteResponse(1L, true));
+        voteFuture.complete(new RequestVoteResponse(1L, 1L, true));
     }
 
     private Object getPrivateField(String fieldName) throws Exception {
@@ -112,7 +112,7 @@ class RaftNodeWritePathTest {
         when(mockLog.getTermAtOffset(1L)).thenReturn(1L);
 
         // Receive 1 ack, total replicas = 2 (leader + 1 peer), which is less than 3
-        raftNode.onFollowerAck("node-2", new AppendentrieResponse(1L, true), 1L);
+        raftNode.onFollowerAck("node-2", new AppendEntrieResponse(1L, 1L, true), 1L);
 
         long commitIndex = (long) getPrivateField("commitIndex");
         assertEquals(0L, commitIndex);
@@ -127,11 +127,11 @@ class RaftNodeWritePathTest {
         when(mockLog.getTermAtOffset(1L)).thenReturn(1L);
 
         // 1st ack
-        raftNode.onFollowerAck("node-2", new AppendentrieResponse(1L, true), 1L);
+        raftNode.onFollowerAck("node-2", new AppendEntrieResponse(1L, 1L, true), 1L);
         assertEquals(0L, (long) getPrivateField("commitIndex"));
 
         // 2nd ack -> total replicas = 3 (majority)
-        raftNode.onFollowerAck("node-3", new AppendentrieResponse(1L, true), 1L);
+        raftNode.onFollowerAck("node-3", new AppendEntrieResponse(1L, 1L, true), 1L);
 
         long commitIndex = (long) getPrivateField("commitIndex");
         assertEquals(1L, commitIndex);
@@ -152,7 +152,7 @@ class RaftNodeWritePathTest {
         when(mockRpcClient.sendAppendEntries(anyString(), any())).thenReturn(new CompletableFuture<>());
 
         // Node-2 rejects the log at index 10
-        raftNode.onFollowerAck("node-2", new AppendentrieResponse(1L, false), 10L);
+        raftNode.onFollowerAck("node-2", new AppendEntrieResponse(1L, 1L, false), 10L);
 
         // nextIndex should decrement by 1
         assertEquals(10L, nextIndex.get("node-2"));
