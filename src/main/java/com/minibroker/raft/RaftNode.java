@@ -412,4 +412,23 @@ public class RaftNode {
     public long getCommitIndex() {
         return commitIndex;
     }
+
+
+    public String getLeaderId() {
+        stateLock.lock();
+        try {
+            return currentLeaderId;
+        } finally {
+            stateLock.unlock();
+        }
+    }
+
+    public NodeState getNodeState() {
+        stateLock.lock();
+        try {
+            return state;
+        } finally {
+            stateLock.unlock();
+        }
+    }
 }
