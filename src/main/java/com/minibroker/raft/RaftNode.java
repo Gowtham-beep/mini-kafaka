@@ -182,6 +182,11 @@ public class RaftNode {
                 currentHeartbeatTask.cancel(false);
                 currentHeartbeatTask = null;
             }
+
+            // Note: Since appendMessage() only inserts into purgatory while holding stateLock 
+            // and state == LEADER, a non-leader will always have an empty purgatory. 
+            // Therefore, unconditionally calling failAll() here is perfectly safe and a no-op for non-leaders.
+            purgatory.failAll(new NotLeaderException(currentLeaderId));
         }
 
         private void  becomeLeader(){
