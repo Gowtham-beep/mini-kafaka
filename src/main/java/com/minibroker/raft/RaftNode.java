@@ -46,7 +46,7 @@ public class RaftNode {
     private final ElectionTimer electionTimer;
     private final RequestPurgatory purgatory;
     private final AtomicLong correlationIdGenerator = new AtomicLong(0);
-    private final java.util.concurrent.Executor raftConsensusExecutor;
+    private final java.util.concurrent.ExecutorService raftConsensusExecutor;
     private final ScheduledExecutorService heartbeatScheduler;
     private ScheduledFuture<?> currentHeartbeatTask;
     private final long heartbeatIntervalMs = 50;
@@ -83,6 +83,7 @@ public class RaftNode {
             currentHeartbeatTask = null;
         }
         heartbeatScheduler.shutdownNow();
+        raftConsensusExecutor.shutdownNow();
     }
 
     public RequestVoteResponse handleRequestVote(RequestVoteRequest rpc){
