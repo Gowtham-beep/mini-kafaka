@@ -23,19 +23,17 @@ public class RaftNodeHandler extends SimpleChannelInboundHandler<RaftMessage>{
     protected void channelRead0( ChannelHandlerContext ctx, RaftMessage msg){
         stateMachineExecuter.execute(() -> {
             try{
-                switch(msg){
-                case AppendEntriesRequest req ->{
+                if (msg instanceof AppendEntriesRequest) {
+                    AppendEntriesRequest req = (AppendEntriesRequest) msg;
                     AppendEntrieResponse response = raftNode.handleAppendEntriesRequest(req);
                     ctx.writeAndFlush(response).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-                }
-                case RequestVoteRequest req ->{
+                } else if (msg instanceof RequestVoteRequest) {
+                    RequestVoteRequest req = (RequestVoteRequest) msg;
                     RequestVoteResponse response = raftNode.handleRequestVote(req);
                     ctx.writeAndFlush(response).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
-                }
-                default->{
+                } else {
                     System.err.println("Received unexpected message type in Server pipeline: " + msg.getClass().getSimpleName());
                 }
-            }
             }catch(Exception e){
                 ctx.fireExceptionCaught(e);
             }

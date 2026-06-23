@@ -8,6 +8,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.AppendEntriesRequest;
@@ -43,6 +47,9 @@ public class RaftNode {
     private final RequestPurgatory purgatory;
     private final AtomicLong correlationIdGenerator = new AtomicLong(0);
     private final java.util.concurrent.Executor raftConsensusExecutor;
+    private final ScheduledExecutorService heartbeatScheduler;
+    private ScheduledFuture<?> currentHeartbeatTask;
+    private final long heartbeatIntervalMs = 50;
 
     public RaftNode(
         String myNodeId,
@@ -63,6 +70,19 @@ public class RaftNode {
             t.setDaemon(true);
             return t;
         });
+        this.heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "raft-heartbeat-" + myNodeId);
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    public void shutDown() {
+        if (currentHeartbeatTask != null) {
+            currentHeartbeatTask.cancel(false);
+            currentHeartbeatTask = null;
+        }
+        heartbeatScheduler.shutdownNow();
     }
 
     public RequestVoteResponse handleRequestVote(RequestVoteRequest rpc){
@@ -157,6 +177,11 @@ public class RaftNode {
             currentTerm= term;
             votedFor=null;
             electionTimer.reset();
+            
+            if (currentHeartbeatTask != null) {
+                currentHeartbeatTask.cancel(false);
+                currentHeartbeatTask = null;
+            }
         }
 
         private void  becomeLeader(){
@@ -171,7 +196,17 @@ public class RaftNode {
                     nextIndex.put(peer, nextIdx);
                     matchIndex.put(peer, 0L);
                 }
-                broadcastAppendEntries();
+                
+                if (currentHeartbeatTask != null) {
+                    currentHeartbeatTask.cancel(false);
+                }
+                currentHeartbeatTask = heartbeatScheduler.scheduleAtFixedRate(() -> {
+                    try {
+                        broadcastAppendEntries();
+                    } catch (Exception e) {
+                        System.err.println("Heartbeat broadcast failed: " + e.getMessage());
+                    }
+                }, 0, heartbeatIntervalMs, TimeUnit.MILLISECONDS);
 
             }finally{
                 stateLock.unlock();

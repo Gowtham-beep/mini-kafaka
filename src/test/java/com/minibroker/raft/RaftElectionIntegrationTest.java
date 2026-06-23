@@ -131,6 +131,10 @@ public class RaftElectionIntegrationTest {
         if (server1 != null) server1.shutDown();
         if (server2 != null) server2.shutDown();
         if (server3 != null) server3.shutDown();
+
+        if (node1 != null) node1.shutDown();
+        if (node2 != null) node2.shutDown();
+        if (node3 != null) node3.shutDown();
     }
 
     private RaftNode.NodeState getNodeState(RaftNode node) throws Exception {
@@ -217,6 +221,7 @@ public class RaftElectionIntegrationTest {
 
         leaderServer.shutDown();
         leaderTimer.shutDown();
+        leaderNode.shutDown();
 
         // 2. Wait for followers to detect the failure and hold a new election
         Thread.sleep(2000);

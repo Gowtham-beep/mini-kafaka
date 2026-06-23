@@ -41,7 +41,7 @@ public class RaftServer {
         workerGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         raftExecutorService = Executors.newFixedThreadPool(4, runnable -> {
             Thread thread = new Thread(runnable);
-            thread.setName("raft-state-worker-" + thread.threadId());
+            thread.setName("raft-state-worker-" + thread.getId());
             thread.setDaemon(true);
             return thread;
         });

@@ -11,14 +11,17 @@ public class RaftRpcEncoder extends MessageToByteEncoder<RaftMessage> {
 
     @Override
     protected void encode(ChannelHandlerContext ctx,RaftMessage msg,ByteBuf out) throws Exception{
-        switch(msg){
-            case AppendEntriesRequest req -> encodeAppendEntriesRequest(req,out);
-            case AppendEntrieResponse res -> encodeAppendEntrieResponse(res,out);
-            case RequestVoteRequest req -> encodeRequestVoteRequest(req,out);
-            case RequestVoteResponse res -> encodeRequestVoteResponse(res,out);
-            default -> throw new IllegalArgumentException("Unknown message type: " + msg);
+        if (msg instanceof AppendEntriesRequest) {
+            encodeAppendEntriesRequest((AppendEntriesRequest) msg, out);
+        } else if (msg instanceof AppendEntrieResponse) {
+            encodeAppendEntrieResponse((AppendEntrieResponse) msg, out);
+        } else if (msg instanceof RequestVoteRequest) {
+            encodeRequestVoteRequest((RequestVoteRequest) msg, out);
+        } else if (msg instanceof RequestVoteResponse) {
+            encodeRequestVoteResponse((RequestVoteResponse) msg, out);
+        } else {
+            throw new IllegalArgumentException("Unknown message type: " + msg);
         }
-        
     }
 
     private void encodeAppendEntriesRequest(AppendEntriesRequest req, ByteBuf out){
