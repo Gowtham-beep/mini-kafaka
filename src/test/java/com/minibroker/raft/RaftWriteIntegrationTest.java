@@ -148,4 +148,158 @@ public class RaftWriteIntegrationTest {
         stateField.setAccessible(true);
         return (RaftNode.NodeState) stateField.get(node);
     }
+
+    @Test
+    public void testEndToEndWriteAndReplication() throws Exception {
+        // 1. Wait for election to settle
+        Thread.sleep(2000);
+
+        RaftNode leaderNode = null;
+        SegmentedLog leaderLog = null;
+        
+        if (getNodeState(node1) == RaftNode.NodeState.LEADER) {
+            leaderNode = node1;
+            leaderLog = log1;
+        } else if (getNodeState(node2) == RaftNode.NodeState.LEADER) {
+            leaderNode = node2;
+            leaderLog = log2;
+        } else if (getNodeState(node3) == RaftNode.NodeState.LEADER) {
+            leaderNode = node3;
+            leaderLog = log3;
+        }
+
+        assertNotNull(leaderNode, "A leader should have been elected");
+
+        // 2. Construct Producer manually pointing directly to the leader for this test
+        com.minibroker.Producer producer = new com.minibroker.Producer(leaderNode);
+
+        byte[] testPayload = "Hello Distributed Disk".getBytes();
+
+        // 3. Send a message
+        CompletableFuture<com.minibroker.raft.rpc.RecordMetaData> future = producer.send(testPayload);
+
+        // 4. Wait for quorum replication (blocks until future is resolved)
+        com.minibroker.raft.rpc.RecordMetaData metadata = future.get(5, TimeUnit.SECONDS);
+
+        assertNotNull(metadata);
+        assertTrue(metadata.logicalOffset() >= 0, "Offset should be a valid non-negative index");
+
+        // 5. Allow followers a moment to flush to disk (leader already committed to resolve the future)
+        Thread.sleep(500);
+
+        // 6. Assert all 3 nodes' SegmentedLogs actually contain the message on disk
+        byte[] readFrom1 = log1.read(metadata.logicalOffset());
+        byte[] readFrom2 = log2.read(metadata.logicalOffset());
+        byte[] readFrom3 = log3.read(metadata.logicalOffset());
+
+        assertArrayEquals(testPayload, readFrom1, "Node 1 log should match payload");
+        assertArrayEquals(testPayload, readFrom2, "Node 2 log should match payload");
+        assertArrayEquals(testPayload, readFrom3, "Node 3 log should match payload");
+    }
+    @Test
+    public void testQuorumLossTriggersTimeoutException() throws Exception {
+        // Deferred Scenario 1: (Lose one follower, still have quorum). 
+        // We skip this for now because it is just the happy path with a missing node,
+        // and doesn't exercise the specific failure mechanisms we just built (timeout and failAll).
+
+        // 1. Wait for election to settle
+        Thread.sleep(2000);
+
+        RaftNode leaderNode = null;
+        RaftServer followerServer1 = null;
+        RaftServer followerServer2 = null;
+        ProxyElectionTimer followerTimer1 = null;
+        ProxyElectionTimer followerTimer2 = null;
+        
+        if (getNodeState(node1) == RaftNode.NodeState.LEADER) {
+            leaderNode = node1;
+            followerServer1 = server2;
+            followerServer2 = server3;
+            followerTimer1 = timer2;
+            followerTimer2 = timer3;
+        } else if (getNodeState(node2) == RaftNode.NodeState.LEADER) {
+            leaderNode = node2;
+            followerServer1 = server1;
+            followerServer2 = server3;
+            followerTimer1 = timer1;
+            followerTimer2 = timer3;
+        } else if (getNodeState(node3) == RaftNode.NodeState.LEADER) {
+            leaderNode = node3;
+            followerServer1 = server1;
+            followerServer2 = server2;
+            followerTimer1 = timer1;
+            followerTimer2 = timer2;
+        }
+
+        assertNotNull(leaderNode, "A leader should have been elected");
+
+        // 2. Scenario 2: Quorum loss
+        followerServer1.shutDown();
+        followerServer2.shutDown();
+        followerTimer1.shutDown();
+        followerTimer2.shutDown();
+
+        com.minibroker.Producer producer = new com.minibroker.Producer(leaderNode);
+        
+        // 3. Send with a short timeout (500ms)
+        CompletableFuture<com.minibroker.raft.rpc.RecordMetaData> future = producer.send("Timeout Payload".getBytes(), 500);
+
+        // 4. Assert it throws TimeoutException wrapped in ExecutionException
+        ExecutionException exception = assertThrows(ExecutionException.class, future::get);
+        assertTrue(exception.getCause() instanceof java.util.concurrent.TimeoutException);
+    }
+
+    @Test
+    public void testLeaderFailureTriggersNotLeaderException() throws Exception {
+        // 1. Wait for election to settle
+        Thread.sleep(2000);
+
+        RaftNode leaderNode = null;
+        RaftServer followerServer1 = null;
+        RaftServer followerServer2 = null;
+        ProxyElectionTimer followerTimer1 = null;
+        ProxyElectionTimer followerTimer2 = null;
+        
+        if (getNodeState(node1) == RaftNode.NodeState.LEADER) {
+            leaderNode = node1;
+            followerServer1 = server2;
+            followerServer2 = server3;
+            followerTimer1 = timer2;
+            followerTimer2 = timer3;
+        } else if (getNodeState(node2) == RaftNode.NodeState.LEADER) {
+            leaderNode = node2;
+            followerServer1 = server1;
+            followerServer2 = server3;
+            followerTimer1 = timer1;
+            followerTimer2 = timer3;
+        } else if (getNodeState(node3) == RaftNode.NodeState.LEADER) {
+            leaderNode = node3;
+            followerServer1 = server1;
+            followerServer2 = server2;
+            followerTimer1 = timer1;
+            followerTimer2 = timer2;
+        }
+
+        assertNotNull(leaderNode, "A leader should have been elected");
+
+        // 2. Stop followers so they can't ack the append and resolve it early
+        followerServer1.shutDown();
+        followerServer2.shutDown();
+        followerTimer1.shutDown();
+        followerTimer2.shutDown();
+
+        com.minibroker.Producer producer = new com.minibroker.Producer(leaderNode);
+        
+        // 3. Send a message with a long timeout
+        CompletableFuture<com.minibroker.raft.rpc.RecordMetaData> future = producer.send("StepDown Payload".getBytes(), 5000);
+
+        // 4. Force step down by simulating a request with a much higher term
+        leaderNode.handleAppendEntriesRequest(new com.minibroker.raft.rpc.AppendEntriesRequest(
+            1L, 9999L, "some-other-node", -1L, 0L, List.of(), -1L
+        ));
+
+        // 5. Assert the future is failed explicitly by failAll() due to stepping down
+        ExecutionException exception = assertThrows(ExecutionException.class, future::get);
+        assertTrue(exception.getCause() instanceof NotLeaderException);
+    }
 }

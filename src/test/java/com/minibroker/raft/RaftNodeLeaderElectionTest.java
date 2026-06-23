@@ -167,8 +167,8 @@ class RaftNodeLeaderElectionTest {
         Thread.sleep(50);
 
         // Check matchIndex map
-        Map<String, Long> matchIndex = (Map<String, Long>) getPrivateField("matchIndex");
-        assertEquals(0L, matchIndex.get("node-2"));
-        assertEquals(0L, matchIndex.get("node-3"));
+        Map<String, Long> matchIndexMap = (Map<String, Long>) getPrivateField("matchIndex");
+        assertEquals(-1L, matchIndexMap.get("node-2"), "matchIndex should be initialized to -1 for peer node-2");
+        assertEquals(-1L, matchIndexMap.get("node-3"), "matchIndex should be initialized to -1 for peer node-3");
     }
 }

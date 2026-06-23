@@ -37,7 +37,7 @@ public class RaftNode {
     private final List<String> clusterPeers;
 
     private NodeState state = NodeState.FOLLOWER;
-    private long commitIndex = 0;
+    private long commitIndex = -1;
 
     private final Map<String,Long> nextIndex = new ConcurrentHashMap<>();
     private final Map<String, Long> matchIndex = new ConcurrentHashMap<>(); 
@@ -200,7 +200,7 @@ public class RaftNode {
                 long nextIdx = log.getLastOffset()+1;
                 for(String peer:clusterPeers){
                     nextIndex.put(peer, nextIdx);
-                    matchIndex.put(peer, 0L);
+                    matchIndex.put(peer, -1L);
                 }
                 
                 if (currentHeartbeatTask != null) {
@@ -273,22 +273,29 @@ public class RaftNode {
             
         }
 
-        public CompletableFuture<RecordMetaData> appendMessage(byte[] payload){
+        public CompletableFuture<RecordMetaData> appendMessage(byte[] payload, long timeoutMs) {
             long logicalOffset;
             var future = new CompletableFuture<RecordMetaData>();
             stateLock.lock();
-            try{
-                if(state!= NodeState.LEADER){
+            try {
+                if (state != NodeState.LEADER) {
                     future.completeExceptionally(new NotLeaderException(currentLeaderId));
                     return future;
                 }
                 logicalOffset = log.append(currentTerm, payload);
-                purgatory.put(logicalOffset,future);
+                purgatory.put(logicalOffset, future);
                 broadcastAppendEntries();
-            }finally{
+            } finally {
                 stateLock.unlock();
             }
-            return future;
+            
+            final long finalLogicalOffset = logicalOffset;
+            return future.orTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                         .whenComplete((res, ex) -> {
+                             if (ex instanceof java.util.concurrent.TimeoutException) {
+                                 purgatory.remove(finalLogicalOffset, future);
+                             }
+                         });
         }
 
         public void onFollowerAck(String peer,AppendEntrieResponse response,long sentOffset){
@@ -331,7 +338,7 @@ public class RaftNode {
             }
             int replicaCount = 1;
             for(String peer: clusterPeers){
-                if(matchIndex.getOrDefault(peer, 0L)>=targetOffset){
+                if(matchIndex.getOrDefault(peer, -1L)>=targetOffset){
                     replicaCount++;
                 }
             }
@@ -345,7 +352,8 @@ public class RaftNode {
                 if (state != NodeState.LEADER) {
                     return;
                 }
-                long prevLogIndex = nextIndex.getOrDefault(peer, 1L) - 1;
+                long nextIdxForPeer = nextIndex.containsKey(peer) ? nextIndex.get(peer) : log.getLastOffset() + 1;
+                long prevLogIndex = nextIdxForPeer - 1;
                 long prevLogTerm = 0;
                 if (prevLogIndex >= 0) {
                     prevLogTerm = log.getTermAtOffset(prevLogIndex);
@@ -353,7 +361,7 @@ public class RaftNode {
 
                 List<LogEntry> entries = new ArrayList<>();
                 long lastOffset = log.getLastOffset();
-                for (long idx = nextIndex.getOrDefault(peer, 1L); idx <= lastOffset; idx++) {
+                for (long idx = nextIdxForPeer; idx <= lastOffset; idx++) {
                     try {
                         byte[] payload = log.read(idx);
                         long term = log.getTermAtOffset(idx);

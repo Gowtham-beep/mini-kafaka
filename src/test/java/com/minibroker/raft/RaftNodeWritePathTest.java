@@ -87,7 +87,7 @@ class RaftNodeWritePathTest {
     void testAppendMessageThrowsNotLeaderExceptionWhenCalledOnFollower() {
         initRaftNode(List.of("node-2", "node-3"));
         
-        CompletableFuture<?> future = raftNode.appendMessage("test".getBytes());
+        CompletableFuture<?> future = raftNode.appendMessage("test".getBytes(), 5000);
 
         assertTrue(future.isCompletedExceptionally());
         
@@ -102,7 +102,7 @@ class RaftNodeWritePathTest {
         
         when(mockLog.append(anyLong(), any())).thenReturn(1L);
 
-        CompletableFuture<?> future = raftNode.appendMessage("test".getBytes());
+        CompletableFuture<?> future = raftNode.appendMessage("test".getBytes(), 5000);
 
         verify(mockPurgatory, times(1)).put(eq(1L), any());
         assertFalse(future.isDone());
@@ -120,7 +120,7 @@ class RaftNodeWritePathTest {
         raftNode.onFollowerAck("node-2", new AppendEntrieResponse(1L, 1L, true), 1L);
 
         long commitIndex = (long) getPrivateField("commitIndex");
-        assertEquals(0L, commitIndex);
+        assertEquals(-1L, commitIndex);
     }
 
     @Test
@@ -133,7 +133,7 @@ class RaftNodeWritePathTest {
 
         // 1st ack
         raftNode.onFollowerAck("node-2", new AppendEntrieResponse(1L, 1L, true), 1L);
-        assertEquals(0L, (long) getPrivateField("commitIndex"));
+        assertEquals(-1L, (long) getPrivateField("commitIndex"));
 
         // 2nd ack -> total replicas = 3 (majority)
         raftNode.onFollowerAck("node-3", new AppendEntrieResponse(1L, 1L, true), 1L);

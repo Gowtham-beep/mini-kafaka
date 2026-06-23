@@ -37,6 +37,10 @@ public class RequestPurgatory {
         }
     }
 
+    public void remove(long logIndex, CompletableFuture<RecordMetaData> future) {
+        purgatoryMap.remove(logIndex, future);
+    }
+
     public void failAll(Throwable cause) {
         // Called when this node steps down from LEADER while writes are
         // still in-flight. A write that was accepted locally but never

@@ -20,6 +20,17 @@ public class Producer {
      * @return A CompletableFuture containing the RecordMetaData once committed.
      */
     public CompletableFuture<RecordMetaData> send(byte[] payload) {
-        return raftNode.appendMessage(payload);
+        return send(payload, 5000); // 5 seconds default timeout
+    }
+
+    /**
+     * Appends a message to the cluster with a custom timeout.
+     * 
+     * @param payload The raw byte payload to send.
+     * @param timeoutMs The timeout in milliseconds before throwing TimeoutException
+     * @return A CompletableFuture containing the RecordMetaData once committed.
+     */
+    public CompletableFuture<RecordMetaData> send(byte[] payload, long timeoutMs) {
+        return raftNode.appendMessage(payload, timeoutMs);
     }
 }
