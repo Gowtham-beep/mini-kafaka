@@ -45,6 +45,7 @@ public class RaftNode {
     private final RpcClient rpcClient;
     private final ElectionTimer electionTimer;
     private final RequestPurgatory purgatory;
+    private final FetchPurgatory fetchPurgatory;
     private final AtomicLong correlationIdGenerator = new AtomicLong(0);
     private final java.util.concurrent.ExecutorService raftConsensusExecutor;
     private final ScheduledExecutorService heartbeatScheduler;
@@ -57,6 +58,7 @@ public class RaftNode {
         RpcClient rpcClient,
         ElectionTimer electionTimer,
         RequestPurgatory purgatory,
+        FetchPurgatory fetchPurgatory,
         List<String> clusterPeers
     ){
         this.myNodeId = myNodeId;
@@ -64,6 +66,7 @@ public class RaftNode {
         this.rpcClient = rpcClient;
         this.electionTimer = electionTimer;
         this.purgatory = purgatory;
+        this.fetchPurgatory = fetchPurgatory;
         this.clusterPeers = clusterPeers;
         this.raftConsensusExecutor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "raft-consensus-" + myNodeId);
@@ -157,6 +160,7 @@ public class RaftNode {
             }
             if(rpc.leaderCommit()>commitIndex){
                 commitIndex = Math.min(rpc.leaderCommit(),log.getLastOffset());
+                fetchPurgatory.wakeAllUpTo(commitIndex);
             }
             return new AppendEntrieResponse(rpc.correlationId(), currentTerm,true);
 
@@ -315,7 +319,7 @@ public class RaftNode {
                     if(checkQuorum(sentOffset)){
                         commitIndex=sentOffset;
                         purgatory.resolveAllUpTo(sentOffset);
-
+                        fetchPurgatory.wakeAllUpTo(commitIndex);
                     }
                 }else{
                     long currentNextIndex = nextIndex.getOrDefault(peer, 1L);
@@ -396,4 +400,16 @@ public class RaftNode {
                 sendAppendEntriesToPeer(peer);
             }
         }
+
+    public FetchPurgatory getFetchPurgatory() {
+        return fetchPurgatory;
+    }
+
+    public SegmentedLog getLog() {
+        return log;
+    }
+
+    public long getCommitIndex() {
+        return commitIndex;
+    }
 }

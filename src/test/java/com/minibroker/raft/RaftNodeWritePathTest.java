@@ -41,6 +41,7 @@ class RaftNodeWritePathTest {
                 mockRpcClient,
                 mockElectionTimer,
                 mockPurgatory,
+                new FetchPurgatory(),
                 peers
         );
     }

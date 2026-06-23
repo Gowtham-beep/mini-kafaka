@@ -115,25 +115,9 @@ public class SegmentedLog {
     }
 
 
-    public byte[] read(long logicalOffset) throws InterruptedException{
-        if(logicalOffset<=getHighestCommittedOffset()){
-            return doRead(logicalOffset);
-        }
-        newDataLock.lock();
-        try{
-            waitingConsumers.incrementAndGet();
-                try{
-                    while(logicalOffset>getHighestCommittedOffset()){
-                        newDataCondition.await();
-                    }
-                }finally{
-                    waitingConsumers.decrementAndGet();
-                }
-        }finally{
-            newDataLock.unlock();
-        }
+    public byte[] read(long logicalOffset) throws InterruptedException {
         return doRead(logicalOffset);
-        }
+    }
 
 
     private byte[] doRead( long logicalOffset){

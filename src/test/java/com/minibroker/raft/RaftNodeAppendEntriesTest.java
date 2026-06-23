@@ -38,6 +38,7 @@ class RaftNodeAppendEntriesTest {
                 mockRpcClient,
                 mockElectionTimer,
                 mockPurgatory,
+                new FetchPurgatory(),
                 List.of("node-2", "node-3")
         );
     }

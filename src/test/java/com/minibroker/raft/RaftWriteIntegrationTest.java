@@ -99,9 +99,12 @@ public class RaftWriteIntegrationTest {
         purg2 = new RequestPurgatory();
         purg3 = new RequestPurgatory();
 
-        node1 = new RaftNode("node-1", log1, client1, timer1, purg1, List.of("node-2", "node-3"));
-        node2 = new RaftNode("node-2", log2, client2, timer2, purg2, List.of("node-1", "node-3"));
-        node3 = new RaftNode("node-3", log3, client3, timer3, purg3, List.of("node-1", "node-2"));
+        FetchPurgatory fetchPurg1 = new FetchPurgatory();
+        FetchPurgatory fetchPurg2 = new FetchPurgatory();
+        FetchPurgatory fetchPurg3 = new FetchPurgatory();
+        node1 = new RaftNode("node-1", log1, client1, timer1, purg1, fetchPurg1, List.of("node-2", "node-3"));
+        node2 = new RaftNode("node-2", log2, client2, timer2, purg2, fetchPurg2, List.of("node-1", "node-3"));
+        node3 = new RaftNode("node-3", log3, client3, timer3, purg3, fetchPurg3, List.of("node-1", "node-2"));
 
         timer1.setNode(node1);
         timer2.setNode(node2);

@@ -40,6 +40,7 @@ class RaftNodeLeaderElectionTest {
                 mockRpcClient,
                 mockElectionTimer,
                 mockPurgatory,
+                new FetchPurgatory(),
                 peers
         );
     }
