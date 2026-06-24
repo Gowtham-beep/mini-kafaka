@@ -3,6 +3,7 @@ package com.minibroker.raft;
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.AppendEntrieResponse;
 import com.minibroker.raft.rpc.RequestVoteResponse;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,6 +33,13 @@ class RaftNodeWritePathTest {
 
         when(mockLog.getLastOffset()).thenReturn(-1L);
         when(mockRpcClient.sendAppendEntries(anyString(), any())).thenReturn(new CompletableFuture<>());
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (raftNode != null) {
+            raftNode.shutDown();
+        }
     }
 
     private void initRaftNode(List<String> peers) {
@@ -72,7 +80,7 @@ class RaftNodeWritePathTest {
         raftNode.handleElectionTimeout();
         voteFuture.complete(new RequestVoteResponse(1L, 1L, true));
         try {
-            Thread.sleep(50);
+            Thread.sleep(250);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }

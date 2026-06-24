@@ -3,6 +3,7 @@ package com.minibroker.raft;
 import com.minibroker.log.SegmentedLog;
 import com.minibroker.raft.rpc.RequestVoteRequest;
 import com.minibroker.raft.rpc.RequestVoteResponse;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,6 +39,13 @@ public class RaftNodeRequestVoteTest {
                 new FetchPurgatory(),
                 List.of("node-2", "node-3")
         );
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (raftNode != null) {
+            raftNode.shutDown();
+        }
     }
 
     @Test

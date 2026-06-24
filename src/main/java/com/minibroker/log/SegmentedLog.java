@@ -103,6 +103,8 @@ public class SegmentedLog {
 //cold path
     private void rotate(Segment oldSegment){
         try{
+            oldSegment.markSealed();
+            oldSegment.waitTillFullyWritten();
             oldSegment.seal();
             long newBaseOffset = oldSegment.getBaseOffset() + oldSegment.getMessageCount();
             Segment newSegment = createNewSegment(newBaseOffset);

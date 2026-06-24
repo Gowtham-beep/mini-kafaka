@@ -5,6 +5,7 @@ import com.minibroker.raft.rpc.AppendEntriesRequest;
 import com.minibroker.raft.rpc.AppendEntrieResponse;
 import com.minibroker.raft.rpc.LogEntry;
 import com.minibroker.raft.rpc.RequestVoteRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -41,6 +42,13 @@ class RaftNodeAppendEntriesTest {
                 new FetchPurgatory(),
                 List.of("node-2", "node-3")
         );
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (raftNode != null) {
+            raftNode.shutDown();
+        }
     }
 
     @Test

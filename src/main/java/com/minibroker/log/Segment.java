@@ -108,20 +108,20 @@ public class Segment implements Comparable<Segment> {
         int totalBytes = 16 + payload.length ;
 
         long claimedWritePos;
-        while(true){
+        long messageIndex;
+        synchronized(this) {
+            if (this.isSealed) {
+                throw new IllegalStateException("Segment is sealed");
+            }
             claimedWritePos = this.writePosition.get();
             long nextWritePos = claimedWritePos + totalBytes;
             if(nextWritePos > this.maxFileSize){
-                throw new IllegalStateException(
-                    "Segment is full. Current position: " + claimedWritePos
-                );
+                throw new IllegalStateException("Segment full. Max size: " + this.maxFileSize + ", requested end pos: " + nextWritePos);
             }
-            if(this.writePosition.compareAndSet(claimedWritePos, nextWritePos)){
-                break;
-            }
+            this.writePosition.set(nextWritePos);
+            messageIndex = this.messageCount.getAndIncrement();
         }
         
-        long messageIndex = this.messageCount.getAndIncrement();
         long claimedLogicalOffset = this.baseOffset + messageIndex;
 
         ByteBuffer buf = logBuffer.duplicate();
@@ -164,11 +164,26 @@ public class Segment implements Comparable<Segment> {
     }
 
     private void writeIndexEntry(long logicalOffset, long bytePos){
-        long pos = this.indexPosition.getAndAdd(INDEX_ENTRY_SIZE);
-        ByteBuffer buf = this.indexBuffer.duplicate();
-        buf.position((int)pos);
-        buf.putLong(logicalOffset);
-        buf.putLong(bytePos);
+        synchronized (this.indexBuffer) {
+            long pos = this.indexPosition.get();
+            if (pos >= INDEX_ENTRY_SIZE) {
+                long lastLogical = this.indexBuffer.getLong((int)(pos - INDEX_ENTRY_SIZE));
+                if (logicalOffset <= lastLogical) {
+                    return; // Skip out-of-order index entries to keep index sorted
+                }
+            }
+            this.indexPosition.getAndAdd(INDEX_ENTRY_SIZE);
+            ByteBuffer buf = this.indexBuffer.duplicate();
+            buf.position((int)pos);
+            buf.putLong(logicalOffset);
+            buf.putLong(bytePos);
+        }
+    }
+
+    public void markSealed() {
+        synchronized(this) {
+            this.isSealed = true;
+        }
     }
 
     public void seal() throws IOException{
@@ -301,6 +316,12 @@ public class Segment implements Comparable<Segment> {
 
     public long getWritePosition() {
         return writePosition.get();
+    }
+
+    public void waitTillFullyWritten() {
+        while(this.highWatermark.get() < this.writePosition.get()) {
+            LockSupport.parkNanos(1);
+        }
     }
 
     void recoverState(long recoveredMessageCount, long recoveredWritePosition) {

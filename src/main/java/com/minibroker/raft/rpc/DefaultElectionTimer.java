@@ -13,10 +13,13 @@ public class DefaultElectionTimer implements ElectionTimer {
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> currentTimer;
-    private final RaftNode raftNode;
+    private RaftNode raftNode;
     
-
-    public DefaultElectionTimer(RaftNode node){
+    public DefaultElectionTimer() {
+        // Node will be set later via setNode() to break circular dependency
+    }
+    
+    public void setNode(RaftNode node) {
         this.raftNode = node;
     }
     @Override
@@ -27,14 +30,15 @@ public class DefaultElectionTimer implements ElectionTimer {
         long timeOutMs = ThreadLocalRandom.current().nextLong(150,300);
 
         currentTimer = scheduler.schedule(()->{
-                    try {
-                raftNode.handleElectionTimeout();
-                    } catch (Exception e) {
-                        System.err.println("Election timeout handler failed: " + e.getMessage());
-                        reset(); 
-                    }
+            if (raftNode != null) {
+                try {
+                    raftNode.handleElectionTimeout();
+                } catch (Exception e) {
+                    System.err.println("Election timeout handler failed: " + e.getMessage());
+                    reset(); 
                 }
-            ,
+            }
+        },
             timeOutMs, 
             TimeUnit.MILLISECONDS
         );
