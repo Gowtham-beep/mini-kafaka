@@ -288,7 +288,14 @@ public class RaftNode {
                 }
                 logicalOffset = log.append(currentTerm, payload);
                 purgatory.put(logicalOffset, future);
-                broadcastAppendEntries();
+                
+                if (checkQuorum(logicalOffset)) {
+                    commitIndex = logicalOffset;
+                    purgatory.resolveAllUpTo(commitIndex);
+                    fetchPurgatory.wakeAllUpTo(commitIndex);
+                } else {
+                    broadcastAppendEntries();
+                }
             } finally {
                 stateLock.unlock();
             }
@@ -351,48 +358,60 @@ public class RaftNode {
         }
 
         private void sendAppendEntriesToPeer(String peer) {
+            long nextIdxForPeer;
+            long prevLogIndex;
+            long prevLogTerm = 0;
+            long lastOffset;
+            long currentTermCopy;
+            long commitIndexCopy;
+
             stateLock.lock();
             try {
                 if (state != NodeState.LEADER) {
                     return;
                 }
-                long nextIdxForPeer = nextIndex.containsKey(peer) ? nextIndex.get(peer) : log.getLastOffset() + 1;
-                long prevLogIndex = nextIdxForPeer - 1;
-                long prevLogTerm = 0;
+                nextIdxForPeer = nextIndex.containsKey(peer) ? nextIndex.get(peer) : log.getLastOffset() + 1;
+                prevLogIndex = nextIdxForPeer - 1;
                 if (prevLogIndex >= 0) {
                     prevLogTerm = log.getTermAtOffset(prevLogIndex);
                 }
-
-                List<LogEntry> entries = new ArrayList<>();
-                long lastOffset = log.getLastOffset();
-                for (long idx = nextIdxForPeer; idx <= lastOffset; idx++) {
-                    try {
-                        byte[] payload = log.read(idx);
-                        long term = log.getTermAtOffset(idx);
-                        entries.add(new LogEntry(term, payload));
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
-                }
-
-                AppendEntriesRequest request = new AppendEntriesRequest(
-                    correlationIdGenerator.incrementAndGet(),
-                    currentTerm,
-                    myNodeId,
-                    prevLogIndex,
-                    prevLogTerm,
-                    entries,
-                    commitIndex
-                );
-
-                rpcClient.sendAppendEntries(peer, request).thenAcceptAsync(response -> {
-                    onFollowerAck(peer, response, prevLogIndex + entries.size());
-                }, raftConsensusExecutor);
-
+                lastOffset = log.getLastOffset();
+                currentTermCopy = currentTerm;
+                commitIndexCopy = commitIndex;
             } finally {
                 stateLock.unlock();
             }
+
+            // Perform potentially slow disk I/O outside of the critical stateLock
+            List<LogEntry> entries = new ArrayList<>();
+            for (long idx = nextIdxForPeer; idx <= lastOffset; idx++) {
+                try {
+                    byte[] payload = log.read(idx);
+                    long term = log.getTermAtOffset(idx);
+                    entries.add(new LogEntry(term, payload));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (Exception e) {
+                    // If offset was truncated or dropped, break and send what we successfully read.
+                    // Heartbeats or next append will reconcile further discrepancies.
+                    break;
+                }
+            }
+
+            AppendEntriesRequest request = new AppendEntriesRequest(
+                correlationIdGenerator.incrementAndGet(),
+                currentTermCopy,
+                myNodeId,
+                prevLogIndex,
+                prevLogTerm,
+                entries,
+                commitIndexCopy
+            );
+
+            rpcClient.sendAppendEntries(peer, request).thenAcceptAsync(response -> {
+                onFollowerAck(peer, response, prevLogIndex + entries.size());
+            }, raftConsensusExecutor);
         }
 
         private void broadcastAppendEntries() {

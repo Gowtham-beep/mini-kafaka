@@ -110,6 +110,10 @@ public class MiniKafkaBroker implements Broker {
         );
     }
 
+    public RaftNode getRaftNode() {
+        return raftNode;
+    }
+
     @Override
     public InetSocketAddress getLeaderAddress() {
         String leaderId = raftNode.getLeaderId();
